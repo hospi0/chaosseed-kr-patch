@@ -124,6 +124,10 @@ def charmap(tr, occ):
                 weight[s] += nocc.get(rid, 1)
     for ch in nameent.required():
         weight[ch] += 0                                          # 없으면 0 으로 들어감(맨 뒤)
+    for v in nameent.UI.values():                                # 이름판 문구는 원래 자리(짧음)에 들어가야 → 1바이트 칸 우선
+        for ch in v:
+            if is_ko(ch):
+                weight[ch] += 10 ** 9
     fixed = dict(nameent.SEON_CODE)
     order = [ch for ch, _ in sorted(weight.items(), key=lambda kv: -kv[1]) if ch not in fixed]
     slots = [c for c in ONE if c not in fixed.values()] + TWO
@@ -208,10 +212,14 @@ def build(kodir, install=False, keep=False):
         if f not in bins:
             bins[f] = bytearray(open(os.path.join(ROOT, 'work', 'disc', f), 'rb').read())
 
+    FIRST = {}
+    for k, v in sorted(tbl.DEC.items()):
+        FIRST.setdefault(v, k)
+
     def enc_ui(buf, a, b):
         n = 0
         for jp, ko in nameent.UI.items():
-            src = b''.join(tbl.code_bytes({v: k for k, v in tbl.DEC.items()}[ch]) for ch in jp) + b'\x00'
+            src = b''.join(tbl.code_bytes(FIRST[ch]) for ch in jp) + b'\x00'   # ★같은 글자가 표에 둘이면 «앞 코드»(ー = 0x2D)
             new_b = encode(ko, cmap)
             i = buf.find(src, a, b)
             while i >= 0:
