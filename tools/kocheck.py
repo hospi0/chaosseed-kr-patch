@@ -5,7 +5,8 @@ r"""번역 검사 — python tools/kocheck.py [파일 …]   (없으면 work/ko/
     · 제어 토큰이 원문과 다름 — {p} · {03:nn} · {04:nn} · {05:nn} · {07}‥{0A} · {c:XXX} · 끝의 {00} (순서까지 같아야)
     · \n 개수가 원문과 다름(줄바꿈은 원문 자리 그대로 — 대사는 엔진이 알아서 접는다)
     · 가나·한자가 남음 / 글꼴에 없는 글자(라틴 소문자 등 — 글꼴엔 숫자·대문자 A‥Z 뿐)
-  ⚠경고: 부호 뒤 공백(빌더가 지운다 — 무시해도 됨) · 번역 글자 수가 원문의 2배 초과
+  ⚠경고: 번역 글자 수가 원문의 2배 초과 · 오버레이(ovl_*.tsv «메뉴:NB») 제자리 예산 초과 추정
+  ⛔«번역금지» 줄(이름 입력판 한자 표)에 번역을 넣으면 오류
 """
 import glob, os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,7 +26,9 @@ def check(path):
         if ln == 1 or len(c) < 6 or not c[5].strip():
             continue
         rid, src, ko = c[0], c[4], c[5]; done += 1
-        if c[2] == '영문':
+        if c[2] in ('영문', '번역금지'):
+            if c[2] == '번역금지':
+                print('%s:%d %s ⛔번역금지 줄' % (os.path.basename(path), ln, rid)); err += 1
             continue
         msgs = []
         if toks(src) != toks(ko):
@@ -40,6 +43,11 @@ def check(path):
                       and not KANA_KANJI.match(ch)})
         if bad:
             msgs.append('⛔글꼴에 없는 글자: %s' % ''.join(bad))
+        m = re.match(r'(?:메뉴|잡음\?):(\d+)B', c[2])
+        if m:                                      # 오버레이 문자열은 제자리 — 한글 2바이트로 쳐서 예산 넘으면 경고
+            est = sum(2 if '가' <= ch <= '힣' else 1 for ch in body) + ko.count('\\n') + 2 * len(re.findall(r'\{0[34]:', ko))
+            if est > int(m.group(1)):
+                msgs.append('⚠메뉴 예산 %dB < 추정 %dB(자주 쓰는 음절은 1바이트라 실제론 줄 수 있음 — 짧게 줄일 것)' % (int(m.group(1)), est))
         n_src = len(TOK.sub('', src).replace('\\n', ''))
         if n_src and len(body) > 2 * n_src + 4:
             msgs.append('⚠원문 %d자 → %d자' % (n_src, len(body)))
