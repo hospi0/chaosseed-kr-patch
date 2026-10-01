@@ -302,6 +302,9 @@ def build(kodir, install=False, keep=False):
         return n
     nb, nu = nameent.patch_load(bins['LOAD.BIN'], cmap, code_bytes, enc_ui)
     nu2 = nameent.patch_nameent(bins['NAMEENT.BIN'], code_bytes, enc_ui)
+    import gfx_load                                              # 그림 글자(제목 RAM 선택·저장 화면·시나리오 간판) — LOAD.BIN 압축 블록 3개
+    for blk, (n, room, _) in gfx_load.apply(bins['LOAD.BIN']).items():
+        print('LOAD 그림 블록 %X: %d B / %d B' % (blk, n, room))
     print('이름판: 전체 탭 %d행 · 문구 %d+%d' % (nb, nu, nu2))
     print('오버레이 문자열 %d자리 · 메뉴 라벨 %d · 바뀐 파일 %s' % (nov, len(gfx_menu.LABELS), sorted(bins)))
     files = {f: bytes(b) for f, b in bins.items()}
