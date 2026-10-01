@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 r"""이름 입력판 한글화 (2026-10-01)
   ① 주인공·히로인 입력판 = LOAD.BIN(적재 0x0602D000) — 행마다 포인터: 히라가나 5행 0xFB94 · 가타카나 5행 0xFBA8 · 영숫자 5행 0xFBBC
-     · 한자 198행 0xFBD0. 행 = 14칸(1·2바이트 글자, 빈칸 0x20) + 00. 표 몸통 0x11074‥ (앞 0x11000‥0x11073 은 탁점 변환표 — 그대로).
+     · 한자 130행 0xFBD0(★뒤 포인터는 다른 표). 행 = 정확히 14칸 + 00(2바이트 글자 둘째 바이트가 00 일 수 있어 00 찾기로 끊으면 안 됨). 행 = 14칸(1·2바이트 글자, 빈칸 0x20) + 00. 행들 사이에 다른 데이터(옵션 화면 문구 등)가 섞여 있으므로 «원래 행 바이트 범위»에만 다시 채운다.
      → 히라가나 탭 «자주1»(가~히 70자) · 가타카나 탭 «자주2»(70자) · 영숫자 그대로 · 한자 탭 «전체»(글자표의 모든 한글 음절, 초성별, 첫 칸 = 초성)
   ② 선수(召喚獣·竜) 이름판 = NAMEENT.BIN(적재 0x060EC000) — 가타카나 5행(0x2B0D, 행 14 B 고정) → SEON 56자(가·고·구·기 줄 × 14)
      이름은 상태 창 등에서 8×8 셀(문자 0x2E00 + 1바이트 코드)로도 찍히므로 SEON 은 1바이트 코드 0xA5‥0xDC 에 고정하고,
@@ -40,17 +40,35 @@ def row_bytes(cells, enc1):
     return b''.join(enc1(c) for c in cells) + b'\x00'
 
 
+KANJI_ROWS = 130        # ★한자 탭 = 포인터 0xFBD0 부터 130개(뒤는 다른 표: 0x130‥ 잡데이터 · なぞ窟 설명 · 제목 — 2026-10-01 크래시 원인)
+
+
+def row_end(L, o):
+    """행 = 14칸(0x18‥0x1D 는 2바이트 — 둘째 바이트가 00 일 수 있음) + 00 → 끝(다음 바이트) 위치"""
+    n = 0
+    while n < 14:
+        o += 2 if 0x18 <= L[o] <= 0x1D else 1
+        n += 1
+    assert L[o] == 0, ('행 끝이 00 아님', hex(o))
+    return o + 1
+
+
 def patch_load(L, cmap, code_bytes, enc_ui):
-    """LOAD.BIN(bytearray) 이름판 표·탭 문구"""
+    """LOAD.BIN(bytearray) 이름판 표·탭 문구 — ★원래 행들이 차지한 바이트 범위에만 다시 채움(사이에 다른 데이터가 섞여 있다)"""
     def enc1(ch):
         if ch == ' ':
             return b' '
         return code_bytes(cmap[ch])
-    lo = 0x11074
     ptr = lambda o: struct.unpack_from('>I', L, o)[0] - LOAD_BASE
-    kanji = [ptr(0xFBD0 + 4 * i) for i in range(198)]
-    hi = max(kanji); hi = L.index(b'\x00', hi) + 1                      # 표 몸통 끝
-    alnum = [L[ptr(0xFBBC + 4 * i):L.index(b'\x00', ptr(0xFBBC + 4 * i)) + 1] for i in range(5)]
+    tabs = ((0xFB94, 5), (0xFBA8, 5), (0xFBBC, 5), (0xFBD0, KANJI_ROWS))
+    spans = sorted({(ptr(base + 4 * i), row_end(L, ptr(base + 4 * i))) for base, n in tabs for i in range(n)})
+    blocks = []                                              # 이어진 범위 합치기
+    for a, b in spans:
+        if blocks and a <= blocks[-1][1]:
+            blocks[-1][1] = max(blocks[-1][1], b)
+        else:
+            blocks.append([a, b])
+    alnum = [bytes(L[ptr(0xFBBC + 4 * i):row_end(L, ptr(0xFBBC + 4 * i))]) for i in range(5)]
     rows_fav1 = [row_bytes(FAV1[i * 14:(i + 1) * 14], enc1) for i in range(5)]
     rows_fav2 = [row_bytes(FAV2[i * 14:(i + 1) * 14], enc1) for i in range(5)]
     hang = sorted(ch for ch in cmap if '가' <= ch <= '힣')
@@ -59,18 +77,24 @@ def patch_load(L, cmap, code_bytes, enc_ui):
         grp = [ch for ch in hang if cho_of(ch) == k]
         for i in range(0, len(grp), 13):
             big.append(row_bytes([CHO[k] if i == 0 else ' '] + grp[i:i + 13], enc1))
-    if len(big) > 198:
-        raise SystemExit('⛔이름판 전체 탭 %d행 > 198' % len(big))
-    big += [row_bytes([], enc1)] * (198 - len(big))
-    body = bytearray(); offs = {}
+    if len(big) > KANJI_ROWS:
+        raise SystemExit('⛔이름판 전체 탭 %d행 > %d' % (len(big), KANJI_ROWS))
+    big += [row_bytes([], enc1)] * (KANJI_ROWS - len(big))
+    old = {(a, b): bytes(L[a:b]) for a, b in blocks}
+    for a, b in blocks:                                      # 원래 행 범위만 비움(00 — 아무 행도 안 가리킴)
+        L[a:b] = bytes(b - a)
+    bi, cur = 0, blocks[0][0]
+    offs = {}
     for name, rows in (('fav1', rows_fav1), ('fav2', rows_fav2), ('alnum', alnum), ('big', big)):
         offs[name] = []
         for r in rows:
-            offs[name].append(lo + len(body)); body += r
-    if lo + len(body) > hi:
-        raise SystemExit('⛔이름판 표 %d B > 자리 %d B' % (len(body), hi - lo))
-    L[lo:hi] = body + bytes(hi - lo - len(body))
-    for base, name in ((0xFB94, 'fav1'), (0xFBA8, 'fav2'), (0xFBBC, 'alnum'), (0xFBD0, 'big')):
+            while cur + len(r) > blocks[bi][1]:
+                bi += 1
+                if bi >= len(blocks):
+                    raise SystemExit('⛔이름판 표가 원래 자리(%d B)를 넘음' % sum(b - a for a, b in blocks))
+                cur = blocks[bi][0]
+            L[cur:cur + len(r)] = r; offs[name].append(cur); cur += len(r)
+    for (base, n), name in zip(tabs, ('fav1', 'fav2', 'alnum', 'big')):
         for i, o in enumerate(offs[name]):
             struct.pack_into('>I', L, base + 4 * i, LOAD_BASE + o)
     n = enc_ui(L, 0x10DF0, 0x10E54)
