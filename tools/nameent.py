@@ -102,7 +102,7 @@ def patch_load(L, cmap, code_bytes, enc_ui):
     for (base, n), name in zip(tabs, ('fav1', 'fav2', 'alnum', 'big')):
         for i, o in enumerate(offs[name]):
             struct.pack_into('>I', L, base + 4 * i, LOAD_BASE + o)
-    n = enc_ui(L, 0x10DF0, 0x10E54)
+    n = enc_ui(L, 0x10DF0, 0x10E7F)              # 탭·버튼·이름판 제목(…ヒロインの呼び名·召喚獣の呼び名·竜の呼び名) — 0x10E7F 부터는 백업 경고문
     return len([r for r in big if r.strip(b' \x00')]), n
 
 
