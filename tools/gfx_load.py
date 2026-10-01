@@ -109,6 +109,8 @@ def apply(L):
         u = bytearray(u)
         for t, ch, st, fn in js:
             put(u, t, grid(mask(ch, fn), st))
+        if blk == 0x13916:                                      # 굵은 空 의 지붕(宀)은 39번 칸 아래 4줄을 따로 찍는다 → 지움(실기 «비 자 깨짐»)
+            u[39 * 128 + 12 * 8:40 * 128] = bytes(4 * 8)
         c = lz.compress(bytes(u))
         room = e - (blk + 1)
         if len(c) > room:

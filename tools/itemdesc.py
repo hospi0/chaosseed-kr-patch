@@ -74,11 +74,14 @@ def entry(b, a):
 
 
 # 같은 형식의 표 — (시작, 끝, ID 머리, 한 줄 폭, 번역 파일). 선수 설명 표는 26개 뒤 오프셋이 FFFF(없음)·마지막 항목은 00 으로 끝남
-TABLES = [(0x72BE6, 0x749F0, 'I', 12, 'itemdesc.tsv'), (0x77B6C, 0x782C8, 'M', 18, 'mondesc.tsv')]
+END_U = 0x700B1        # 강화 설명 표 데이터 끝(뒤 = 강화 이름 오프셋 표)
+TABLES = [(0x72BE6, 0x749F0, 'I', 12, 'itemdesc.tsv'), (0x77B6C, 0x782C8, 'M', 18, 'mondesc.tsv'),
+          (0x6FD50, END_U, 'U', 24, 'upgdesc.tsv')]   # U = 강화 항목 설명(192칸)
 
 
 def decode(b, start=START):
-    offs = [struct.unpack_from('>H', b, start + 2 * k)[0] for k in range(N)]
+    n = struct.unpack_from('>H', b, start)[0] // 2                # 첫 오프셋 = 항목 수 × 2(표 바로 뒤가 첫 항목)
+    offs = [struct.unpack_from('>H', b, start + 2 * k)[0] for k in range(n)]
     res = []
     for o in offs:
         if o == 0xFFFF:
@@ -117,7 +120,7 @@ def to_text(raw):
 
 def build(raws):
     """raws: 256개(01 줄바꿈, FF 없음, 글자만) → 표 바이트"""
-    base = 2 * N
+    base = 2 * len(raws)
     body = bytearray(); offs = []; seen = {}
     starts = []                                                  # body 안 토큰 시작 위치(참조 원본 후보)
     for raw in raws:
@@ -218,7 +221,7 @@ def apply(exe, tr, cmap, encode):
     for start, end, pre, width, _ in TABLES:
         _, orig = decode(bytes(exe), start)
         raws, errs = [], []
-        for k in range(N):
+        for k in range(len(orig)):
             if orig[k] is None:
                 raws.append(None); continue
             t = tr.get('%s%03d' % (pre, k))
