@@ -77,12 +77,36 @@ def put8(buf, code, ch, base):
         globals()['BASE'] = keep
 
 
+# CSFR 셀 블록 앞쪽(셀 번호 = 블록 안 32B 단위) 흰 라벨: 바탕 7 · 글자 F · 그림자 A(+1,+1). 32‥36 エネルギー · 37‥38 仙丹
+HUD = [(32, 5, '에너지'), (37, 2, '선단')]
+
+
+def put_hud(u, cell, n, text):
+    pts, _ = font('Galmuri7.bdf').draw(text, 0, 0)
+    xs = [x for x, _ in pts]; ys = [y for _, y in pts]
+    ink = {(x - min(xs), y - min(ys)) for x, y in pts}
+    w = n * 8
+    g = [[7] * w for _ in range(8)]
+    for x, y in ink:
+        if x + 1 < w and y + 1 < 8 and (x + 1, y + 1) not in ink:
+            g[y + 1][x + 1] = 0xA
+    for x, y in ink:
+        if x < w and y < 8:
+            g[y][x] = 0xF
+    for c in range(n):
+        for y in range(8):
+            for x in range(0, 8, 2):
+                u[(cell + c) * 32 + y * 4 + x // 2] = (g[y][c * 8 + x] << 4) | g[y][c * 8 + x + 1]
+
+
 def apply_csfr(d, extra=None):
     """CSFR.DAT(bytearray) 의 셀 묶음 압축 블록을 고쳐 제자리에(새 압축 ≤ 원래 — 뒤는 안 읽힘)"""
     sys.path.insert(0, HERE)
     import lz
     u, e = lz.decompress(d, CSFR_BLOB + 1)
     u = bytearray(u); apply(u, 0x1000)
+    for cell, n, text in HUD:                                  # HUD·상태 창 흰 라벨(셀 32‥38, 실기 «에너지 선단»)
+        put_hud(u, cell, n, text)
     for code, ch in (extra or {}).items():                     # 선수 이름용 8×8 한글(nameent.SEON — 코드 = 칸 번호)
         put8(u, code, ch, 0x1000)
     c = lz.compress(bytes(u))

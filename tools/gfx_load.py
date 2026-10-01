@@ -31,8 +31,9 @@ TITLE = [(11, ''), (12, '카'), (13, '트'), (14, '리'), (15, '지'), (16, ''),
          (17, '을'), (18, '사'), (19, '용'), (20, '하'), (21, '기'), (22, '본'), (23, '체')]
 
 
-BOLD12 = {40, 41, 42, 43, 44}      # ★굵은 글씨 스프라이트 = 앞 칸 아래 4줄 + 이 칸 위 12줄 → 글자는 위 12줄 안에(아래 4줄은 다음 글자 머리)
-SHIFT = {75: 2, 76: -2}           # 삭제: 두 칸 사이를 좁힘
+# ★제목 줄 글자 간격 = 13px(실기 «본→체» 실측, 칸은 16 폭이라 겹침) · 저장 화면은 16px 남짓
+ROOF = 40           # 굵은 첫 글자(원래 空) 스프라이트만 39번 칸 아래 4줄에서 시작 → 16줄 틀에 그려 39칸 12‥15줄 + 40칸 0‥11줄로 나눔
+LEFT = {75, 76}     # 삭제: 원본처럼 칸 왼쪽에(실기 «한 칸 앞으로»)
 
 
 def font(name):
@@ -114,19 +115,48 @@ def apply(L):
         u, e = lz.decompress(L, blk + 1)
         u = bytearray(u)
         for t, ch, st, fn in js:
-            ink = mask(ch, fn, 16, 12 if t in BOLD12 else 16)
-            ink = {(x + SHIFT.get(t, 0), y) for x, y in ink if 0 <= x + SHIFT.get(t, 0) < 16}
-            put(u, t, grid(ink, st))
-        if blk == 0x166F4:                                      # 카트리지: 6칸(96px)에 가로 1.5배로 넓혀 그림(줄 시작 맞춤·RAM 에 붙임)
-            wide = set()
+            ink = mask(ch, fn)
+            if t in LEFT and ink:
+                m = min(x for x, _ in ink); ink = {(x - m, y) for x, y in ink}
+            g = grid(ink, st)
+            if blk == 0x13916 and t == ROOF:
+                for y in range(4):
+                    for x in range(0, 16, 2):
+                        u[39 * 128 + (12 + y) * 8 + x // 2] = (g[y][x] << 4) | g[y][x + 1]
+                g = g[4:] + [[0] * 16 for _ in range(4)]
+            put(u, t, g)
+        if blk == 0x166F4:                                      # 카트리지: 6칸 × 13px 에 네 자(19px 간격, 가로 1.4배) — 줄 시작·RAM 붙임
+            canvas = set()
             for k, ch in enumerate('카트리지'):
-                for x, y in mask(ch, 'Galmuri11-Bold.bdf'):
-                    for xx in range(int(x * 1.5), int((x + 1) * 1.5)):
-                        wide.add((k * 24 + xx, y))
-            for c in range(6):
-                put(u, 11 + c, grid({(x - c * 16, y) for x, y in wide if c * 16 <= x < c * 16 + 16}, 'title'))
-        if blk == 0x13916:                                      # 굵은 空 의 지붕(宀)은 39번 칸 아래 4줄을 따로 찍는다 → 지움(실기 «비 자 깨짐»)
-            u[39 * 128 + 12 * 8:40 * 128] = bytes(4 * 8)
+                pts, _ = font('Galmuri11-Bold.bdf').draw(ch, 0, 0)
+                xs = [x for x, _ in pts]; ys = [y for _, y in pts]
+                x0, y0 = min(xs), min(ys); ih = max(ys) - y0 + 1
+                for x, y in pts:
+                    for xx in range(int((x - x0) * 1.4), int((x - x0 + 1) * 1.4)):
+                        canvas.add((k * 19 + 1 + xx, y - y0 + (15 - ih) // 2))
+            W = 13 * 5 + 16
+            full = [[0] * W for _ in range(16)]
+            shadow = {(x + 1, y + 1) for x, y in canvas if x + 1 < W and y + 1 < 16} - canvas
+            body = canvas | shadow
+            for x, y in body:
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        X, Y = x + dx, y + dy
+                        if 0 <= X < W and 0 <= Y < 16 and (X, Y) not in body:
+                            full[Y][X] = 11
+            for x, y in shadow:
+                full[y][x] = 12
+            for x, y in canvas:
+                full[y][x] = 14 if y >= 11 else 15
+            for c in range(6):                                  # 칸 c 는 화면 13c 부터 — 겹치는 오른쪽 3px 는 비움(마지막 칸만 16px)
+                wdt = 16 if c == 5 else 13
+                g = [[full[y][13 * c + x] if x < wdt else 0 for x in range(16)] for y in range(16)]
+                put(u, 11 + c, g)
+        if blk == 0x155AB and 0x13916 in done:                  # 시나리오 화면 «0回終»(하늘색) = 저장 화면 64‥65칸 사본, 반 칸 어긋난 0x2C0·0x340 · 색 3→4
+            src = done[0x13916][2]
+            for t, off in ((64, 0x2C0), (65, 0x340)):
+                u[off:off + 128] = bytes(((4 if (b >> 4) == 3 else b >> 4) << 4) | (4 if (b & 15) == 3 else b & 15)
+                                         for b in src[t * 128:t * 128 + 128])
         c = lz.compress(bytes(u))
         room = e - (blk + 1)
         if len(c) > room:
