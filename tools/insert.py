@@ -190,6 +190,7 @@ def build(kodir, install=False, keep=False):
     if 'HELP.BIN' not in bins:
         bins['HELP.BIN'] = bytearray(open(os.path.join(ROOT, 'work', 'disc', 'HELP.BIN'), 'rb').read())
     gfx_menu.apply(bins['HELP.BIN'])
+    bins['CSFR.DAT'] = gfx_menu.apply_csfr(bytearray(open(os.path.join(ROOT, 'work', 'disc', 'CSFR.DAT'), 'rb').read()))
     print('오버레이 문자열 %d자리 · 메뉴 라벨 %d · 바뀐 파일 %s' % (nov, len(gfx_menu.LABELS), sorted(bins)))
     files = {f: bytes(b) for f, b in bins.items()}
     files.update({a + '.ADT': d for a, d in arcs.items()})

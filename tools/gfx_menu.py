@@ -2,7 +2,8 @@
 r"""메뉴 8×8 셀 묶음 라벨 한글화 (2026-10-01) — HELP.BIN 0x1E524(문자 0x2E00‥0x2EFF, 4bpp, 팔레트 30)
   색: 바탕 e · 글자 b · 그림자 d(글자 오른쪽·아래) — 원래 라벨과 같은 꼴.
   1줄(8px×24px) 라벨은 갈무리7(사용자 «7×7 잘 읽힘»), 2줄(16px) 라벨은 갈무리11 / 콘덴스드.
-  from gfx_menu import apply; apply(help_bin_bytearray)   ·   python tools/gfx_menu.py → work/gfx_menu.png 미리보기
+  ★실제로 쓰이는 건 CSFR.DAT 0x1A6A9 압축 블록(apply_csfr) — HELP.BIN 사본(apply)은 화면에 안 나옴(2026-10-01 실기)
+  from gfx_menu import apply, apply_csfr   ·   python tools/gfx_menu.py → work/gfx_menu.png 미리보기
 """
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
@@ -53,10 +54,31 @@ def put(buf, cell, g, cw, rows):
                     buf[a + y * 4 + x // 2] = (p0 << 4) | p1
 
 
-def apply(buf):
-    for cell, cw, rows, text, fname in LABELS:
-        put(buf, cell, render(text, fname, cw * 8, rows * 8), cw, rows)
+def apply(buf, base=BASE):
+    global_base = globals()['BASE']
+    globals()['BASE'] = base
+    try:
+        for cell, cw, rows, text, fname in LABELS:
+            put(buf, cell, render(text, fname, cw * 8, rows * 8), cw, rows)
+    finally:
+        globals()['BASE'] = global_base
     return buf
+
+
+CSFR_BLOB = 0x1A6A9          # ★게임이 실제로 VRAM 에 올리는 사본: CSFR.DAT 안 압축 블록(0x34, 풀면 12,288 B, 셀 0x2E00 = 블록 안 0x1000)
+
+
+def apply_csfr(d):
+    """CSFR.DAT(bytearray) 의 셀 묶음 압축 블록을 고쳐 제자리에(새 압축 ≤ 원래 — 뒤는 안 읽힘)"""
+    sys.path.insert(0, HERE)
+    import lz
+    u, e = lz.decompress(d, CSFR_BLOB + 1)
+    u = bytearray(u); apply(u, 0x1000)
+    c = lz.compress(bytes(u))
+    if len(c) > e - (CSFR_BLOB + 1):
+        raise SystemExit('⛔CSFR 셀 블록 압축 %d > 원래 %d' % (len(c), e - CSFR_BLOB - 1))
+    d[CSFR_BLOB + 1:CSFR_BLOB + 1 + len(c)] = c
+    return d
 
 
 if __name__ == '__main__':

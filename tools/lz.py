@@ -54,11 +54,45 @@ def decompress(src, pos=0):
     return bytes(out), i
 
 
-def compress(data):
-    """decompress 의 역(탐욕 일치). 반환 = u32 크기부터(항목에 넣을 땐 앞에 0x34).
-       짧은 참조: 거리 −2048‥−1 · 길이 3‥18 (b=거리>>4, c=(거리&15)<<4|길이−3) / 긴 참조: 거리 −32768‥−1 · 길이 4‥259 (b, c, n)
+def compress(data, chain=256):
+    """decompress 의 역 — 최적 파싱(동적 계획법, 비트 비용 최소). 반환 = u32 크기부터(항목에 넣을 땐 앞에 0x34).
+       비용: 글자 <0x80 = 8비트 · ≥0x80 = 9비트(플래그 0) · 짧은 참조(거리 −2048‥−1, 길이 3‥18) = 18비트 · 긴 참조(거리 −32768‥−1, 길이 4‥259) = 26비트
+       짧은: b=거리>>4, c=(거리&15)<<4|길이−3 / 긴: b=거리>>8, c=거리&FF, n=길이−4 (b 는 늘 0x80↑ 이라 글자와 안 헷갈림)
        플래그 비트는 토큰 첫 바이트 b 뒤에서 소비 — 8개 다 차면 그 자리에 새 플래그 바이트(원본 «즉시 읽기»와 같은 순서)"""
-    out = bytearray(len(data).to_bytes(4, 'little')); fpos = len(out); out.append(0); nb = 0
+    n = len(data)
+    # 위치마다 일치 후보: [(거리, 최대 길이)]
+    heads = {}; cands = [None] * n
+    for i in range(n):
+        lst = []
+        if i + 3 <= n:
+            seen_l = 0
+            for j in reversed(heads.get(data[i:i + 3], [])[-chain:]):
+                dd = j - i
+                if dd < -32768:
+                    break
+                l = 3
+                while i + l < n and l < 259 and data[j + l] == data[i + l]:
+                    l += 1
+                if l > seen_l or dd >= -2048 > dd - 1:
+                    lst.append((dd, l)); seen_l = max(seen_l, l)
+            heads.setdefault(data[i:i + 3], []).append(i)
+        cands[i] = lst
+    INF = 1 << 60
+    cost = [INF] * (n + 1); cost[n] = 0; how = [None] * n
+    for i in range(n - 1, -1, -1):
+        best = (9 if data[i] >= 0x80 else 8) + cost[i + 1]; hw = None
+        for dd, L in cands[i]:
+            if dd >= -2048:
+                for l in range(3, min(L, 18) + 1):
+                    c = 18 + cost[i + l]
+                    if c < best:
+                        best, hw = c, (dd, l)
+            for l in range(4, L + 1):
+                c = 26 + cost[i + l]
+                if c < best:
+                    best, hw = c, (dd, l)
+        cost[i] = best; how[i] = hw
+    out = bytearray(n.to_bytes(4, 'little')); fpos = len(out); out.append(0); nb = 0
 
     def bit(v):
         nonlocal fpos, nb
@@ -66,38 +100,20 @@ def compress(data):
         if nb == 8:
             fpos = len(out); out.append(0); nb = 0
 
-    heads = {}; i = 0; n = len(data)
+    i = 0
     while i < n:
-        best_l, best_d = 0, 0
-        if i + 3 <= n:
-            for j in reversed(heads.get(data[i:i + 3], [])[-64:]):
-                d = j - i
-                if d < -32768:
-                    break
-                l = 0
-                while i + l < n and l < 259 and data[j + l] == data[i + l]:
-                    l += 1
-                if l > best_l and (l >= 4 or d >= -2048):
-                    best_l, best_d = l, d
-                    if l == 259:
-                        break
-        if best_l >= 3 and not (best_l == 3 and best_d < -2048):
-            if best_d >= -2048 and best_l <= 18:
-                out.append((best_d >> 4) & 0xFF); bit(1); bit(0); out.append(((best_d & 15) << 4) | (best_l - 3))
-            else:
-                if best_l < 4:
-                    best_l = 0
-                else:
-                    out.append((best_d >> 8) & 0xFF); bit(1); bit(1); out += bytes([best_d & 0xFF, best_l - 4])
-            if best_l:
-                for k in range(best_l):
-                    heads.setdefault(data[i + k:i + k + 3], []).append(i + k)
-                i += best_l; continue
-        b = data[i]
-        out.append(b)
-        if b >= 0x80:
-            bit(0)
-        heads.setdefault(data[i:i + 3], []).append(i); i += 1
+        hw = how[i]
+        if hw is None:
+            out.append(data[i])
+            if data[i] >= 0x80:
+                bit(0)
+            i += 1; continue
+        dd, l = hw
+        if dd >= -2048 and l <= 18 and (l == 3 or 18 + cost[i + l] <= 26 + cost[i + l]):
+            out.append((dd >> 4) & 0xFF); bit(1); bit(0); out.append(((dd & 15) << 4) | (l - 3))
+        else:
+            out.append((dd >> 8) & 0xFF); bit(1); bit(1); out += bytes([dd & 0xFF, l - 4])
+        i += l
     return bytes(out)
 
 
