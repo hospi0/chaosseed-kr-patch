@@ -26,21 +26,22 @@ OUT = os.path.join(ROOT, 'work', 'out', os.path.basename(disc.ROM))
 F_DIR = r'F:\hospi\roms\ss roms\Senkutsu Katsuryu Taisen - Chaos Seed (Japan) (Disc 1) (Game Disc) (Rev B) (21M)'
 BUF = 0x060DAB80 - 0x060D877C
 ONE = list(range(0x6E, 0x100)) + list(range(0x5D, 0x68))
-KEEP = {0x2FF, 0x2DE, 0x2DF, 0x5F7, 0x248, 0x249, 0x24A}            # 전각 공백·「」·○·반각 조각 그림
+KEEP = {0x2FF, 0x2DE, 0x2DF, 0x5F7, 0x248, 0x249, 0x24A, 0x66A, 0x66B, 0x66C, 0x66D}   # 전각 공백·「」·○·반각 조각 그림·㎝㎏♂♀(도움말 선수 소개)
 TWO = list(range(0x100, 0x110)) + [c for c in range(0x11A, tbl.LAST + 1) if c not in KEEP]
 # 한글 밖 글자 → 원래 글꼴 코드
 PUN = {' ': 0x20, '　': 0x2FF, '!': 0x21, '！': 0x21, '?': 0x22, '？': 0x22, '。': 0x23, '、': 0x24, ',': 0x110, '，': 0x110,
        '.': 0x111, '．': 0x111, '・': 0x112, '&': 0x113, '＆': 0x113, '%': 0x114, '％': 0x114, '々': 0x115, 'ー': 0x116,
        '-': 0x116, '‥': 0x117, '…': 0x117, '~': 0x118, '～': 0x118, '〜': 0x118, '♡': 0x119, '♥': 0x119, '―': 0x27,
        '+': 0x28, '＋': 0x28, '(': 0x29, '（': 0x29, ')': 0x2A, '）': 0x2A, '『': 0x2B, '』': 0x2C, ':': 0x2E, '：': 0x2E,
-       '/': 0x2F, '／': 0x2F, '「': 0x2DE, '」': 0x2DF, '○': 0x5F7, '゛': 0x25, '゜': 0x26, '◀': 0x68, '▶': 0x69, '■': 0x6C}
+       '/': 0x2F, '／': 0x2F, '「': 0x2DE, '」': 0x2DF, '○': 0x5F7, '゛': 0x25, '゜': 0x26, '◀': 0x68, '▶': 0x69, '■': 0x6C,
+       '㎝': 0x66A, '㎏': 0x66B, '♂': 0x66C, '♀': 0x66D}
 for i, ch in enumerate('0123456789'):
     PUN[ch] = 0x30 + i; PUN[chr(0xFF10 + i)] = 0x30 + i
 for i in range(26):
     PUN[chr(0x41 + i)] = 0x3A + i; PUN[chr(0xFF21 + i)] = 0x3A + i
 SPECIAL = {'{A}': 0x54, '{B}': 0x55, '{X}': 0x56, '{Y}': 0x57, '{58}': 0x58, '{59}': 0x59, '{5A}': 0x5A, '{5B}': 0x5B,
            '{LV}': 0x5C, '{6A}': 0x6A, '{6B}': 0x6B, '{248}': 0x248, '{249}': 0x249, '{24A}': 0x24A}
-TOK = re.compile(r'\\n|\{p\}|\{0[345]:[0-9A-F]{2}\}|\{0[0-9A-F]\}|\{c:[0-9A-F]{3}\}|\{[A-Z0-9]{1,3}\}')
+TOK = re.compile(r'\\n|\{p\}|\{(?:07|0D|10|11):[0-9A-F]{2}:[0-9A-F]{2}\}|\{17:[0-9A-F]{2}\}|\{0[345]:[0-9A-F]{2}\}|\{0[0-9A-F]\}|\{c:[0-9A-F]{3}\}|\{[A-Z0-9]{1,3}\}')
 PUNCT_SP = re.compile(r'([,.!?:;)\]\'"~、。，．！？：；）］｝」』】〉》”’…‥・·～〜♪♥]) (?! )')   # «}» 는 토큰 닫는 괄호라 뺌({05:00} 뒤 띄어쓰기 보존)
 
 
@@ -83,7 +84,7 @@ def encode(t, cmap, nl=6):
             elif s.startswith('{c:'):
                 out += code_bytes(int(s[3:6], 16))
             elif ':' in s:
-                out += bytes([int(s[1:3], 16), int(s[4:6], 16)])
+                out += bytes(int(x, 16) for x in s[1:-1].split(':'))
             else:
                 out.append(int(s[1:3], 16))
         elif is_ko(s):
@@ -111,6 +112,12 @@ def glyph(F, ch):
 
 # 1바이트 칸 우선 음절 — 오버레이 제자리 예산이 1~2바이트 모자란 줄(빌드가 «예산 초과»로 알려 주면 여기 보탠다)
 PREFER1 = set('케브레스메이혼아레크린클릭') | set('다음턴엔뭔가일어날듯')
+# 8×8 글자(셀 0x2E00 + 1바이트 코드 — CSFR.DAT)로 찍히는 이름표(0.BIN 0x778EF‥, 원문은 탁점 분리 가나 1자 = 1바이트)용 음절
+#   = 선(SEON 56, 코드 고정) + ㅗ·ㅓ·ㅔ 줄 42 + 받침 23 → 1바이트 칸 우선 · gfx_menu.apply_csfr 가 이 코드들의 8×8 셀을 그린다(2026-10-02)
+_CON = 'ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ'
+EIGHT = ([chr(0xAC00 + 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ'.index(c) * 588 + 'ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ'.index(v) * 28)
+          for v in 'ㅗㅓㅔ' for c in _CON] + list('칸왕란몬류젠텐첸샤유탄워펜적인헌위닌본료와야교'))
+PREFER1 |= set(EIGHT)
 
 
 def is_ko(ch):
@@ -148,6 +155,8 @@ def build(kodir, install=False, keep=False):
     sys.stdout.reconfigure(encoding='utf-8')
     occ = json.load(open(os.path.join(ROOT, 'work', 'extract.json'), encoding='utf-8'))
     tr = load_ko(kodir)
+    import itemdesc
+    tr.update(itemdesc.load_ko())                                # 아이템 설명(I###, tools/itemdesc.py) — 글자표에 포함
     cmap = charmap(tr, occ)
     print('번역 %d줄 · 글자표 한글 %d자(칸 %d)' % (len(tr), len(cmap), len(ONE) + len(TWO)))
     # ① 글꼴: 가나·한자 칸 전부 → 쓰는 칸은 한글, 안 쓰는 칸은 빈칸
@@ -226,7 +235,11 @@ def build(kodir, install=False, keep=False):
     print('문장 제자리 %d · 끝으로 옮김 %d · 바뀐 묶음 %s' % (nin, nmv, sorted(arcs)))
     # ③ 오버레이 문자열(work/ovl.json, ID V…) — 제자리·원래 바이트 이하, 남는 곳은 끝이 00 이면 00, 아니면 공백(0x20)
     bins = {'0.BIN': exe}; nov = 0; over = []
-    for o in json.load(open(os.path.join(ROOT, 'work', 'ovl.json'), encoding='utf-8')):
+    ovl_all = json.load(open(os.path.join(ROOT, 'work', 'ovl.json'), encoding='utf-8'))
+    ovl_all += json.load(open(os.path.join(ROOT, 'work', 'ovl2.json'), encoding='utf-8'))   # W… 보충(tools/ovl2_extract.py)
+    for o in ovl_all:
+        if o['file'] == '0.BIN' and itemdesc.START <= o['start'] < itemdesc.END:
+            continue                                             # 아이템 설명 표(압축) 안 조각 — 표를 통째로 다시 짠다
         if o['id'] not in tr:
             continue
         f = o['file']
@@ -239,13 +252,19 @@ def build(kodir, install=False, keep=False):
         bins[f][o['start']:o['end']] = new + bytes([0 if o['term'] == 0 else 0x20]) * (room - len(new)); nov += 1
     if over:
         raise SystemExit('⛔오버레이 문자열 예산 초과 %d곳 — 줄일 것\n' % len(over) + '\n'.join(sorted(set(over))))
+    nd = itemdesc.apply(bins['0.BIN'], tr, cmap, encode)          # 아이템 설명 표(0.BIN 0x72BE6‥) 통째로 다시 짜기
+    print('아이템 설명 표 %d B / 칸 %d B' % (nd, itemdesc.END - itemdesc.START))
     # ④ 메뉴 8×8 셀 라벨(tools/gfx_menu.py — HELP.BIN 0x1E524)
     import gfx_menu, nameent
     if 'HELP.BIN' not in bins:
         bins['HELP.BIN'] = bytearray(open(os.path.join(ROOT, 'work', 'disc', 'HELP.BIN'), 'rb').read())
     gfx_menu.apply(bins['HELP.BIN'])
+    eight = [ch for ch in set(nameent.SEON) | set(EIGHT) if ch in cmap]
+    bad8 = [ch for ch in eight if cmap[ch] >= 0x100]
+    if bad8:
+        raise SystemExit('⛔8×8 음절인데 1바이트 칸을 못 받음: %s' % ''.join(sorted(bad8)))
     bins['CSFR.DAT'] = gfx_menu.apply_csfr(bytearray(open(os.path.join(ROOT, 'work', 'disc', 'CSFR.DAT'), 'rb').read()),
-                                           extra={c: ch for ch, c in nameent.SEON_CODE.items()})
+                                           extra={cmap[ch]: ch for ch in eight})      # 선 56 + EIGHT(이름표용) 8×8 셀
     # ⑤ 이름 입력판(tools/nameent.py)
     for f in ('LOAD.BIN', 'NAMEENT.BIN'):
         if f not in bins:

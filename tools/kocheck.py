@@ -10,7 +10,7 @@ r"""번역 검사 — python tools/kocheck.py [파일 …]   (없으면 work/ko/
 """
 import glob, os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOK = re.compile(r'\{(?:p|0[345]:[0-9A-F]{2}|0[0-9A-F]|c:[0-9A-F]{3}|[A-Z0-9]{1,3})\}')
+TOK = re.compile(r'\{(?:p|(?:07|0D|10|11):[0-9A-F]{2}:[0-9A-F]{2}|17:[0-9A-F]{2}|1[0-7]|0[345]:[0-9A-F]{2}|0[0-9A-F]|c:[0-9A-F]{3}|[A-Z0-9]{1,3})\}')
 OK_SYM = set(' 　!?。、゛゜―＋（）『』「」ー：／，．・＆％々‥～♡○◀▶■！？()~-+:/.,&%')
 KANA_KANJI = re.compile(r'[぀-ヿ一-鿿]')
 
