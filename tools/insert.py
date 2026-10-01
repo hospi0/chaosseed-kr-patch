@@ -123,7 +123,7 @@ def charmap(tr, occ):
     return {ch: slots[i] for i, ch in enumerate(order)}
 
 
-def build(kodir, install=False):
+def build(kodir, install=False, keep=False):
     sys.stdout.reconfigure(encoding='utf-8')
     occ = json.load(open(os.path.join(ROOT, 'work', 'extract.json'), encoding='utf-8'))
     tr = load_ko(kodir)
@@ -135,7 +135,10 @@ def build(kodir, install=False):
     inv = {c: ch for ch, c in cmap.items()}
     for c in ONE + TWO:
         o = font.OFF + (c - 0x20) * 21
-        exe[o:o + 21] = glyph(F, inv[c]) if c in inv else bytes(21)
+        if c in inv:
+            exe[o:o + 21] = glyph(F, inv[c])
+        elif not keep:
+            exe[o:o + 21] = bytes(21)                      # --keep(시험용)이면 안 쓰는 칸은 원래 글자 유지
     # ② 문장
     by_item = collections.defaultdict(list)
     for o in occ:
@@ -204,5 +207,6 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--ko', default=os.path.join(ROOT, 'work', 'ko'))
     ap.add_argument('--install', action='store_true')
+    ap.add_argument('--keep', action='store_true', help='시험용: 안 쓰는 가나·한자 칸을 비우지 않음(번역 안 된 일본어가 보임)')
     a = ap.parse_args()
-    build(a.ko, a.install)
+    build(a.ko, a.install, a.keep)
