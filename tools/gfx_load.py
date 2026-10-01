@@ -25,10 +25,14 @@ SAVE = [(0x13916, 0, '비', 'p1', 'Galmuri11-Bold.bdf'), (0x13916, 1, '어', 'p1
         (0x13916, 42, '있', 's13', 'Galmuri11-Bold.bdf'), (0x13916, 43, '요', 's13', 'Galmuri11-Bold.bdf'),
         (0x13916, 44, '', 's13', None)]
 MENU = [(64, '회'), (65, '차'), (66, '시'), (67, '나'), (68, '리'), (69, '오'), (70, '선'), (71, '택'),
-        (72, '이'), (73, '어'), (74, '서'), (75, '삭'), (76, '제'), (77, '예'), (78, ''), (79, '아니')]
+        (72, '이'), (73, '어'), (74, '서'), (75, '삭'), (76, '제'), (77, '예~'), (78, ''), (79, '아니')]
 SIGN = [(10, '시'), (11, '나'), (12, '리'), (13, '오'), (14, '선'), (15, '택')]
 TITLE = [(11, ''), (12, '카'), (13, '트'), (14, '리'), (15, '지'), (16, ''),
          (17, '을'), (18, '사'), (19, '용'), (20, '하'), (21, '기'), (22, '본'), (23, '체')]
+
+
+BOLD12 = {40, 41, 42, 43, 44}      # ★굵은 글씨 스프라이트 = 앞 칸 아래 4줄 + 이 칸 위 12줄 → 글자는 위 12줄 안에(아래 4줄은 다음 글자 머리)
+SHIFT = {75: 2, 76: -2}           # 삭제: 두 칸 사이를 좁힘
 
 
 def font(name):
@@ -41,6 +45,8 @@ def mask(text, fname, w=16, h=16, dy=0):
     """글자 잉크 좌표 집합(가운데 맞춤). 두 자면 8칸씩 나눠 Galmuri7"""
     if not text:
         return set()
+    if text.endswith('~'):                                      # 작은 글자 한 자(「아니」와 같은 크기, 왼쪽 8칸)
+        return mask(text[0], 'Galmuri7.bdf', 8, h, dy)
     if len(text) == 2:
         a = mask(text[0], 'Galmuri7.bdf', 8, h, dy); b = mask(text[1], 'Galmuri7.bdf', 8, h, dy)
         return a | {(x + 8, y) for x, y in b}
@@ -108,7 +114,17 @@ def apply(L):
         u, e = lz.decompress(L, blk + 1)
         u = bytearray(u)
         for t, ch, st, fn in js:
-            put(u, t, grid(mask(ch, fn), st))
+            ink = mask(ch, fn, 16, 12 if t in BOLD12 else 16)
+            ink = {(x + SHIFT.get(t, 0), y) for x, y in ink if 0 <= x + SHIFT.get(t, 0) < 16}
+            put(u, t, grid(ink, st))
+        if blk == 0x166F4:                                      # 카트리지: 6칸(96px)에 가로 1.5배로 넓혀 그림(줄 시작 맞춤·RAM 에 붙임)
+            wide = set()
+            for k, ch in enumerate('카트리지'):
+                for x, y in mask(ch, 'Galmuri11-Bold.bdf'):
+                    for xx in range(int(x * 1.5), int((x + 1) * 1.5)):
+                        wide.add((k * 24 + xx, y))
+            for c in range(6):
+                put(u, 11 + c, grid({(x - c * 16, y) for x, y in wide if c * 16 <= x < c * 16 + 16}, 'title'))
         if blk == 0x13916:                                      # 굵은 空 의 지붕(宀)은 39번 칸 아래 4줄을 따로 찍는다 → 지움(실기 «비 자 깨짐»)
             u[39 * 128 + 12 * 8:40 * 128] = bytes(4 * 8)
         c = lz.compress(bytes(u))
