@@ -182,7 +182,12 @@ def build(kodir, install=False):
         if len(new) > room:
             raise SystemExit('⛔%s %s:%X 예산 %d B < %d B — 줄일 것' % (o['id'], f, o['start'], room, len(new)))
         bins[f][o['start']:o['end']] = new + bytes([0 if o['term'] == 0 else 0x20]) * (room - len(new)); nov += 1
-    print('오버레이 문자열 %d자리 · 바뀐 파일 %s' % (nov, sorted(bins)))
+    # ④ 메뉴 8×8 셀 라벨(tools/gfx_menu.py — HELP.BIN 0x1E524)
+    import gfx_menu
+    if 'HELP.BIN' not in bins:
+        bins['HELP.BIN'] = bytearray(open(os.path.join(ROOT, 'work', 'disc', 'HELP.BIN'), 'rb').read())
+    gfx_menu.apply(bins['HELP.BIN'])
+    print('오버레이 문자열 %d자리 · 메뉴 라벨 %d · 바뀐 파일 %s' % (nov, len(gfx_menu.LABELS), sorted(bins)))
     files = {f: bytes(b) for f, b in bins.items()}
     files.update({a + '.ADT': d for a, d in arcs.items()})
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
