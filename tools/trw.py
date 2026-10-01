@@ -108,17 +108,22 @@ def main(args):
     # 예산 검사 — 실제 빌드 글자표
     occ = json.load(open(os.path.join(ROOT, 'work', 'extract.json'), encoding='utf-8'))
     tr = insert.load_ko(os.path.join(ROOT, 'work', 'ko'))
+    import itemdesc
+    tr.update(itemdesc.load_ko())
     cmap = insert.charmap(tr, occ)
-    room = {}
+    room = {}; in8 = set()
     for f in ('ovl.json', 'ovl2.json'):
         for o in json.load(open(os.path.join(ROOT, 'work', f), encoding='utf-8')):
             room[o['id']] = min(room.get(o['id'], 1 << 30), o['end'] - o['start'])
+            if any(o['file'] == nf and a <= o['start'] < z for nf, a, z in insert.NAME8):
+                in8.add(o['id'])
+    cmap8 = insert.cmap8_of([tr[i] for i in in8 if i in tr])
     over = []
     for rid, r in idx.items():
         if rid not in tr or rid not in room:
             continue
         try:
-            n = len(insert.encode(tr[rid], cmap, nl=5))
+            n = len(insert.encode(tr[rid], cmap8 if rid in in8 else cmap, nl=5))
         except SystemExit as e:
             err.append('%s %s' % (rid, e)); continue
         if n > room[rid]:

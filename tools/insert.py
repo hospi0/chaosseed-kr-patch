@@ -25,7 +25,7 @@ GAL = r'C:\claude\utils\font\Galmuri-v2.40.3\Galmuri11.bdf'
 OUT = os.path.join(ROOT, 'work', 'out', os.path.basename(disc.ROM))
 F_DIR = r'F:\hospi\roms\ss roms\Senkutsu Katsuryu Taisen - Chaos Seed (Japan) (Disc 1) (Game Disc) (Rev B) (21M)'
 BUF = 0x060DAB80 - 0x060D877C
-ONE = list(range(0x6E, 0x100)) + list(range(0x5D, 0x68))
+ONE = list(range(0x6E, 0xFF)) + list(range(0x5D, 0x68))   # ★0xFF 제외 = 아이템 설명 표(itemdesc)의 끝 표시(원래 ゾ — 글로 안 쓰임)
 KEEP = {0x2FF, 0x2DE, 0x2DF, 0x5F7, 0x248, 0x249, 0x24A, 0x66A, 0x66B, 0x66C, 0x66D}   # 전각 공백·「」·○·반각 조각 그림·㎝㎏♂♀(도움말 선수 소개)
 TWO = list(range(0x100, 0x110)) + [c for c in range(0x11A, tbl.LAST + 1) if c not in KEEP]
 # 한글 밖 글자 → 원래 글꼴 코드
@@ -117,7 +117,22 @@ PREFER1 = set('케브레스메이혼아레크린클릭') | set('다음턴엔뭔�
 _CON = 'ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ'
 EIGHT = ([chr(0xAC00 + 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ'.index(c) * 588 + 'ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ'.index(v) * 28)
           for v in 'ㅗㅓㅔ' for c in _CON] + list('칸왕란몬류젠텐첸샤유탄워펜적인헌위닌본료와야교'))
-PREFER1 |= set(EIGHT)
+# ★2026-10-02 고침: EIGHT 를 본문 1바이트 칸에 올리면 대사 바이트가 늘어 SSS1/323 이 RAM 버퍼를 넘음
+#   → 8×8 전용 이름표(NAME8 구역)는 «8×8 전용 코드표»(cmap8)로 따로 인코딩: 선 56자는 고정 코드, 나머지는 POOL8 코드에
+#     8×8 셀만 그린다(본문 12px 글꼴의 같은 코드 글자와 무관 — 이 표는 8×8 로만 찍힌다).
+#   12px·8×8 양쪽에 찍히는 선수 이름(기본·무작위 이름)은 선 56자로만 쓴다.
+NAME8 = [('0.BIN', 0x778EF, 0x77B73)]
+POOL8 = [c for c in range(0x6E, 0x100) if not 0xA5 <= c <= 0xDC]
+
+
+def cmap8_of(texts):
+    import nameent
+    need = sorted({ch for t in texts for ch in t if is_ko(ch) and ch not in nameent.SEON_CODE})
+    if len(need) > len(POOL8):
+        raise SystemExit('⛔8×8 이름표 음절 %d > 칸 %d' % (len(need), len(POOL8)))
+    m = dict(nameent.SEON_CODE)
+    m.update({ch: POOL8[i] for i, ch in enumerate(need)})
+    return m
 
 
 def is_ko(ch):
@@ -237,6 +252,8 @@ def build(kodir, install=False, keep=False):
     bins = {'0.BIN': exe}; nov = 0; over = []
     ovl_all = json.load(open(os.path.join(ROOT, 'work', 'ovl.json'), encoding='utf-8'))
     ovl_all += json.load(open(os.path.join(ROOT, 'work', 'ovl2.json'), encoding='utf-8'))   # W… 보충(tools/ovl2_extract.py)
+    cmap8 = cmap8_of([tr[o['id']] for o in ovl_all if o['id'] in tr
+                      and any(o['file'] == nf and a <= o['start'] < z for nf, a, z in NAME8)])
     for o in ovl_all:
         if o['file'] == '0.BIN' and itemdesc.START <= o['start'] < itemdesc.END:
             continue                                             # 아이템 설명 표(압축) 안 조각 — 표를 통째로 다시 짠다
@@ -245,7 +262,8 @@ def build(kodir, install=False, keep=False):
         f = o['file']
         if f not in bins:
             bins[f] = bytearray(open(os.path.join(ROOT, 'work', 'disc', f), 'rb').read())
-        new = encode(tr[o['id']], cmap, nl=5)
+        in8 = any(f == nf and a <= o['start'] < z for nf, a, z in NAME8)
+        new = encode(tr[o['id']], cmap8 if in8 else cmap, nl=5)
         room = o['end'] - o['start']
         if len(new) > room:
             over.append('%s %s:%X 예산 %d B < %d B  %s' % (o['id'], f, o['start'], room, len(new), tr[o['id']])); continue
@@ -259,12 +277,8 @@ def build(kodir, install=False, keep=False):
     if 'HELP.BIN' not in bins:
         bins['HELP.BIN'] = bytearray(open(os.path.join(ROOT, 'work', 'disc', 'HELP.BIN'), 'rb').read())
     gfx_menu.apply(bins['HELP.BIN'])
-    eight = [ch for ch in set(nameent.SEON) | set(EIGHT) if ch in cmap]
-    bad8 = [ch for ch in eight if cmap[ch] >= 0x100]
-    if bad8:
-        raise SystemExit('⛔8×8 음절인데 1바이트 칸을 못 받음: %s' % ''.join(sorted(bad8)))
     bins['CSFR.DAT'] = gfx_menu.apply_csfr(bytearray(open(os.path.join(ROOT, 'work', 'disc', 'CSFR.DAT'), 'rb').read()),
-                                           extra={cmap[ch]: ch for ch in eight})      # 선 56 + EIGHT(이름표용) 8×8 셀
+                                           extra={c: ch for ch, c in cmap8.items()})  # 선 56 + 8×8 이름표 전용 셀
     # ⑤ 이름 입력판(tools/nameent.py)
     for f in ('LOAD.BIN', 'NAMEENT.BIN'):
         if f not in bins:
