@@ -68,12 +68,23 @@ def apply(buf, base=BASE):
 CSFR_BLOB = 0x1A6A9          # ★게임이 실제로 VRAM 에 올리는 사본: CSFR.DAT 안 압축 블록(0x34, 풀면 12,288 B, 셀 0x2E00 = 블록 안 0x1000)
 
 
-def apply_csfr(d):
+def put8(buf, code, ch, base):
+    """8×8 셀 한 칸(문자 0x2E00 + code)에 한글 한 자 — 갈무리7"""
+    globals()['BASE'], keep = base, globals()['BASE']
+    try:
+        put(buf, code, render(ch, 'Galmuri7.bdf', 8, 8), 1, 1)
+    finally:
+        globals()['BASE'] = keep
+
+
+def apply_csfr(d, extra=None):
     """CSFR.DAT(bytearray) 의 셀 묶음 압축 블록을 고쳐 제자리에(새 압축 ≤ 원래 — 뒤는 안 읽힘)"""
     sys.path.insert(0, HERE)
     import lz
     u, e = lz.decompress(d, CSFR_BLOB + 1)
     u = bytearray(u); apply(u, 0x1000)
+    for code, ch in (extra or {}).items():                     # 선수 이름용 8×8 한글(nameent.SEON — 코드 = 칸 번호)
+        put8(u, code, ch, 0x1000)
     c = lz.compress(bytes(u))
     if len(c) > e - (CSFR_BLOB + 1):
         raise SystemExit('⛔CSFR 셀 블록 압축 %d > 원래 %d' % (len(c), e - CSFR_BLOB - 1))

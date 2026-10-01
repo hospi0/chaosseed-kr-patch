@@ -86,7 +86,7 @@ def encode(t, cmap, nl=6):
                 out += bytes([int(s[1:3], 16), int(s[4:6], 16)])
             else:
                 out.append(int(s[1:3], 16))
-        elif '가' <= s <= '힣':
+        elif is_ko(s):
             out += code_bytes(cmap[s])
         elif s in PUN:
             out += code_bytes(PUN[s])
@@ -109,18 +109,29 @@ def glyph(F, ch):
     return bytes(out)
 
 
+def is_ko(ch):
+    return '가' <= ch <= '힣' or 'ㄱ' <= ch <= 'ㅎ'
+
+
 def charmap(tr, occ):
+    """쓰임 바이트순 → 1바이트 칸부터. ★이름판(nameent): SEON 56자는 1바이트 0xA5‥0xDC 고정(8×8 셀과 같은 번호), 이름판 필수 음절·초성 자모도 넣음"""
+    import nameent
     weight = collections.Counter()
     nocc = collections.Counter(o['id'] for o in occ)
     for rid, t in tr.items():
         for kind, s in pieces(t):
-            if kind == 'ch' and '가' <= s <= '힣':
+            if kind == 'ch' and is_ko(s):
                 weight[s] += nocc.get(rid, 1)
-    order = [ch for ch, _ in weight.most_common()]
-    if len(order) > len(ONE) + len(TWO):
-        raise SystemExit('⛔한글 음절 %d > 칸 %d' % (len(order), len(ONE) + len(TWO)))
-    slots = ONE + TWO
-    return {ch: slots[i] for i, ch in enumerate(order)}
+    for ch in nameent.required():
+        weight[ch] += 0                                          # 없으면 0 으로 들어감(맨 뒤)
+    fixed = dict(nameent.SEON_CODE)
+    order = [ch for ch, _ in sorted(weight.items(), key=lambda kv: -kv[1]) if ch not in fixed]
+    slots = [c for c in ONE if c not in fixed.values()] + TWO
+    if len(order) > len(slots):
+        raise SystemExit('⛔한글 음절 %d > 칸 %d' % (len(order) + len(fixed), len(slots) + len(fixed)))
+    cmap = {ch: slots[i] for i, ch in enumerate(order)}
+    cmap.update(fixed)
+    return cmap
 
 
 def build(kodir, install=False, keep=False):
@@ -128,7 +139,7 @@ def build(kodir, install=False, keep=False):
     occ = json.load(open(os.path.join(ROOT, 'work', 'extract.json'), encoding='utf-8'))
     tr = load_ko(kodir)
     cmap = charmap(tr, occ)
-    print('번역 %d줄 · 한글 음절 %d (1바이트 %d)' % (len(tr), len(cmap), min(len(cmap), len(ONE))))
+    print('번역 %d줄 · 글자표 한글 %d자(칸 %d)' % (len(tr), len(cmap), len(ONE) + len(TWO)))
     # ① 글꼴: 가나·한자 칸 전부 → 쓰는 칸은 한글, 안 쓰는 칸은 빈칸
     exe = bytearray(open(os.path.join(ROOT, 'work', 'disc', '0.BIN'), 'rb').read())
     F = bdf.Font(GAL)
@@ -186,11 +197,32 @@ def build(kodir, install=False, keep=False):
             raise SystemExit('⛔%s %s:%X 예산 %d B < %d B — 줄일 것' % (o['id'], f, o['start'], room, len(new)))
         bins[f][o['start']:o['end']] = new + bytes([0 if o['term'] == 0 else 0x20]) * (room - len(new)); nov += 1
     # ④ 메뉴 8×8 셀 라벨(tools/gfx_menu.py — HELP.BIN 0x1E524)
-    import gfx_menu
+    import gfx_menu, nameent
     if 'HELP.BIN' not in bins:
         bins['HELP.BIN'] = bytearray(open(os.path.join(ROOT, 'work', 'disc', 'HELP.BIN'), 'rb').read())
     gfx_menu.apply(bins['HELP.BIN'])
-    bins['CSFR.DAT'] = gfx_menu.apply_csfr(bytearray(open(os.path.join(ROOT, 'work', 'disc', 'CSFR.DAT'), 'rb').read()))
+    bins['CSFR.DAT'] = gfx_menu.apply_csfr(bytearray(open(os.path.join(ROOT, 'work', 'disc', 'CSFR.DAT'), 'rb').read()),
+                                           extra={c: ch for ch, c in nameent.SEON_CODE.items()})
+    # ⑤ 이름 입력판(tools/nameent.py)
+    for f in ('LOAD.BIN', 'NAMEENT.BIN'):
+        if f not in bins:
+            bins[f] = bytearray(open(os.path.join(ROOT, 'work', 'disc', f), 'rb').read())
+
+    def enc_ui(buf, a, b):
+        n = 0
+        for jp, ko in nameent.UI.items():
+            src = b''.join(tbl.code_bytes({v: k for k, v in tbl.DEC.items()}[ch]) for ch in jp) + b'\x00'
+            new_b = encode(ko, cmap)
+            i = buf.find(src, a, b)
+            while i >= 0:
+                if len(new_b) > len(src) - 1:
+                    raise SystemExit('⛔이름판 문구 %s → %s 길이 %d > %d' % (jp, ko, len(new_b), len(src) - 1))
+                buf[i:i + len(src)] = new_b + bytes(len(src) - len(new_b)); n += 1
+                i = buf.find(src, i + 1, b)
+        return n
+    nb, nu = nameent.patch_load(bins['LOAD.BIN'], cmap, code_bytes, enc_ui)
+    nu2 = nameent.patch_nameent(bins['NAMEENT.BIN'], code_bytes, enc_ui)
+    print('이름판: 전체 탭 %d행 · 문구 %d+%d' % (nb, nu, nu2))
     print('오버레이 문자열 %d자리 · 메뉴 라벨 %d · 바뀐 파일 %s' % (nov, len(gfx_menu.LABELS), sorted(bins)))
     files = {f: bytes(b) for f, b in bins.items()}
     files.update({a + '.ADT': d for a, d in arcs.items()})
