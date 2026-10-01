@@ -26,6 +26,8 @@ REGIONS = {'0.BIN': [(0x749F0, 0x752B0), (0x775D0, 0x77F40)],
            'LOAD.BIN': [(0xEB00, 0xF100), (0x10500, 0x12B00)],
            'HELP.BIN': [(0x12E00, 0x19900)],
            'NAMEENT.BIN': [(0x2B9F, 0x2EE0)]}
+# 나중에 찾은 글 구역 — 기존 W 번호가 밀리지 않게 맨 뒤에서 뽑는다(새 고유 문장만 새 번호)
+LATE = [('0.BIN', 0x78DF0, 0x78E90)]                      # 선술 이름 목록(破斬 …, 글꼴 0x78F66 바로 앞) — 2026-10-02 실기 «락O»
 SKIP = {'0.BIN': [(0x72BE6, 0x749F0)],                      # 아이템 설명 표(u16 BE 오프셋 256 + 앞 글 재사용 코드)
         'LOAD.BIN': [(0x10DF0, 0x10E7F), (0x10FF0, 0x11074), (0xEB00, 0xF100)],   # …· 탁점 변환 가나 표 · 잡음                   # 이름판 탭·버튼·제목(nameent.patch_load 가 씀)
         'NAMEENT.BIN': [(0x2AC8, 0x2B0D)]}
@@ -105,6 +107,16 @@ def main():
             t = decode(b, i, e)
             if candidate(t):
                 occ.append({'file': f, 'start': i, 'end': e, 'term': b[e], 'text': t, 'n': len(cs)})
+    for f, a0, a1 in LATE:
+        b = open(os.path.join(ROOT, 'work', 'disc', f), 'rb').read()
+        for i, e, cs in runs(b):
+            k = b.rfind(bytes([0xFF]), i, e)                 # 앞의 FF(채움)와 그 앞 잡음은 뗀다
+            if k >= 0:
+                i = k + 1
+            if a0 <= i < a1 and i < e:
+                t = decode(b, i, e)
+                if candidate(t):
+                    occ.append({'file': f, 'start': i, 'end': e, 'term': b[e], 'text': t, 'n': len(cs)})
     uniq, order = {}, []
     for o in occ:
         if o['text'] not in uniq:

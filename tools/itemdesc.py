@@ -37,32 +37,65 @@ def ref(b, p):
     return None
 
 
-def expand(b, a, n, depth=0):
+def run(b, a, limit=None, depth=0):
+    """저장 바이트열 b 의 a 부터 풀기. 저장 쪽은 토큰 단위(글자 1·2바이트 / 참조 02‥16·17), 참조는 «풀린 바이트» 기준 길이로 복사
+       (2바이트 글자가 복사 경계에 걸칠 수 있다 — 풀린 바이트열에서 이어 붙으면 맞는다). limit 없으면 FF 까지."""
+    if depth > 24:
+        raise ValueError('참조 깊이')
     out, i = bytearray(), a
-    while i < a + n:
+    while limit is None or len(out) < limit:
+        c = b[i]
+        if limit is None and c == 0xFF:
+            break
         r = ref(b, i)
-        if r:
-            if depth > 16:
-                raise ValueError('참조 깊이')
-            out += expand(b, r[0], r[1], depth + 1)
+        out += run(b, r[0], r[1], depth + 1) if r else b[i:i + tok_len(c)]
+        i += tok_len(c)
+    return bytes(out[:limit]) if limit is not None else bytes(out)
+
+
+def lead_pending(out):
+    i = 0
+    while i < len(out):
+        if 0x18 <= out[i] <= 0x1D:
+            if i + 1 >= len(out):
+                return True
+            i += 2
         else:
-            out += b[i:i + tok_len(b[i])]
-        i += tok_len(b[i])
-    return bytes(out)
+            i += 1
+    return False
+
+
+def expand(b, a, n, depth=0):
+    return run(b, a, n, depth)
 
 
 def entry(b, a):
+    return run(b, a)
+
+
+# 같은 형식의 표 — (시작, 끝, ID 머리, 한 줄 폭, 번역 파일). 선수 설명 표는 26개 뒤 오프셋이 FFFF(없음)·마지막 항목은 00 으로 끝남
+TABLES = [(0x72BE6, 0x749F0, 'I', 12, 'itemdesc.tsv'), (0x77B6C, 0x782C8, 'M', 18, 'mondesc.tsv')]
+
+
+def decode(b, start=START):
+    offs = [struct.unpack_from('>H', b, start + 2 * k)[0] for k in range(N)]
+    res = []
+    for o in offs:
+        if o == 0xFFFF:
+            res.append(None); continue
+        raw = entry_upto0(b, start + o) if start != START else entry(b, start + o)
+        res.append(raw)
+    return offs, res
+
+
+def entry_upto0(b, a):
+    """FF 또는 00 에서 끝(선수 설명 표 마지막 항목은 00)"""
     out, i = bytearray(), a
-    while b[i] != 0xFF:
-        r = ref(b, i)
-        out += expand(b, r[0], r[1]) if r else b[i:i + tok_len(b[i])]
-        i += tok_len(b[i])
+    while b[i] not in (0xFF, 0x00):
+        c = b[i]; r = ref(b, i)
+        out += run(b, r[0], r[1]) if r else b[i:i + tok_len(c)]
+        i += tok_len(c)
     return bytes(out)
-
-
-def decode(b):
-    offs = [struct.unpack_from('>H', b, START + 2 * k)[0] for k in range(N)]
-    return offs, [entry(b, START + o) for o in offs]
 
 
 def to_text(raw):
@@ -70,7 +103,9 @@ def to_text(raw):
     while i < len(raw):
         c = raw[i]
         if 0x18 <= c <= 0x1D:
-            v = (c - 0x17) << 8 | raw[i + 1]; out.append(tbl.DEC.get(v, '{c:%03X}' % v)); i += 2
+            if i + 1 >= len(raw):
+                out.append("{%02X}" % c); i += 1; continue
+            v = (c - 0x17) << 8 | raw[i + 1]; out.append(tbl.DEC.get(v, "{c:%03X}" % v)); i += 2
         elif c == 1:
             out.append('\\n'); i += 1
         elif c >= 0x20:
@@ -86,6 +121,8 @@ def build(raws):
     body = bytearray(); offs = []; seen = {}
     starts = []                                                  # body 안 토큰 시작 위치(참조 원본 후보)
     for raw in raws:
+        if raw is None:
+            offs.append(0xFFFF); continue
         if raw in seen:
             offs.append(seen[raw]); continue
         offs.append(base + len(body)); seen[raw] = base + len(body)
@@ -141,17 +178,20 @@ def lit_at(body, s, n):
 
 
 def main():
+    """원문 TSV(work/text/itemdesc.tsv · mondesc.tsv) + 원문 그대로 재부호화 검산"""
     sys.stdout.reconfigure(encoding='utf-8')
     b = open(os.path.join(ROOT, 'work', 'disc', '0.BIN'), 'rb').read()
-    offs, res = decode(b)
-    t = build(res)
-    bb = bytearray(b); bb[START:START + len(t)] = t
-    _, res2 = decode(bytes(bb))
-    print('항목 %d · 원본 표 끝 %X · 재부호화 %d B (칸 %d B) · 풀기 일치 %s' % (len(res), END, len(t), END - START, res2 == res))
-    rows = ['ID\t구분\t원문\t번역']
-    for k, r in enumerate(res):
-        rows.append('I%03d\t설명\t%s\t' % (k, to_text(r)))
-    open(os.path.join(ROOT, 'work', 'text', 'itemdesc.tsv'), 'w', encoding='utf-8', newline='\n').write('\n'.join(rows) + '\n')
+    for start, end, pre, width, fn in TABLES:
+        offs, res = decode(b, start)
+        t = build(res)
+        bb = bytearray(b); bb[start:start + len(t)] = t
+        _, res2 = decode(bytes(bb), start)
+        print('%s 항목 %d · 재부호화 %d B (칸 %d B) · 풀기 일치 %s' % (pre, sum(r is not None for r in res), len(t), end - start, res2 == res))
+        rows = ['ID\t구분\t원문\t번역']
+        for k, r in enumerate(res):
+            if r is not None:
+                rows.append('%s%03d\t설명\t%s\t' % (pre, k, to_text(r)))
+        open(os.path.join(ROOT, 'work', 'text', fn), 'w', encoding='utf-8', newline='\n').write('\n'.join(rows) + '\n')
 
 
 if __name__ == '__main__':
@@ -159,39 +199,47 @@ if __name__ == '__main__':
 
 
 def load_ko():
-    p = os.path.join(ROOT, 'work', 'ko', 'itemdesc.tsv')
     tr = {}
-    for l in open(p, encoding='utf-8').read().split('\n')[1:]:
-        if '\t' in l:
-            k, t = l.split('\t', 1)
-            if t.strip():
-                tr[k] = t
+    for *_, fn in TABLES:
+        p = os.path.join(ROOT, 'work', 'ko', fn)
+        if not os.path.exists(p):
+            continue
+        for l in open(p, encoding='utf-8').read().split('\n')[1:]:
+            if '\t' in l:
+                k, t = l.split('\t', 1)
+                if t.strip():
+                    tr[k] = t
     return tr
 
 
-def apply(exe, tr, cmap, encode, width=12):
-    """exe(bytearray, 0.BIN) 의 설명 표를 번역(tr 'I###')으로 다시 짠다 — 원문 줄 수 이하·한 줄 폭 ≤ width 검사"""
-    _, orig = decode(bytes(exe))
-    raws, errs = [], []
-    for k in range(N):
-        t = tr.get('I%03d' % k)
-        if not t:
-            raws.append(orig[k]); continue
-        lines = t.split(chr(92) + 'n')
-        olines = to_text(orig[k]).split(chr(92) + 'n')
-        for ln in lines:
-            w = len(re.sub(r'\{[^}]*\}', '', ln))
-            if w > width:
-                errs.append('I%03d 폭 %d > %d: %s' % (k, w, width, ln))
-        if len(lines) > max(len(olines), 1):
-            errs.append('I%03d 줄 %d > 원문 %d' % (k, len(lines), len(olines)))
-        raws.append(encode(t, cmap, nl=1))
-    if errs:
-        raise SystemExit('⛔아이템 설명\n' + '\n'.join(errs))
-    t = build(raws)
-    if len(t) > END - START:
-        raise SystemExit('⛔아이템 설명 표 %d B > 칸 %d B' % (len(t), END - START))
-    exe[START:END] = t + bytes(END - START - len(t))
-    _, chk = decode(bytes(exe))
-    assert chk == raws, '아이템 설명 재부호화 검산 실패'
-    return len(t)
+def apply(exe, tr, cmap, encode):
+    """exe(bytearray, 0.BIN) 의 설명 표들을 번역(tr 'I###'·'M###')으로 다시 짠다 — 원문 줄 수 이하·한 줄 폭 검사"""
+    sizes = []
+    for start, end, pre, width, _ in TABLES:
+        _, orig = decode(bytes(exe), start)
+        raws, errs = [], []
+        for k in range(N):
+            if orig[k] is None:
+                raws.append(None); continue
+            t = tr.get('%s%03d' % (pre, k))
+            if not t:
+                raws.append(orig[k]); continue
+            lines = t.split(chr(92) + 'n')
+            olines = to_text(orig[k]).split(chr(92) + 'n')
+            for ln in lines:
+                w = len(re.sub(r'\{[^}]*\}', '', ln))
+                if w > width:
+                    errs.append('%s%03d 폭 %d > %d: %s' % (pre, k, w, width, ln))
+            if len(lines) > max(len(olines), 1):
+                errs.append('%s%03d 줄 %d > 원문 %d' % (pre, k, len(lines), len(olines)))
+            raws.append(encode(t, cmap, nl=1))
+        if errs:
+            raise SystemExit('⛔설명 표 %s\n' % pre + '\n'.join(errs))
+        t = build(raws)
+        if len(t) > end - start:
+            raise SystemExit('⛔설명 표 %s %d B > 칸 %d B' % (pre, len(t), end - start))
+        exe[start:end] = t + bytes(end - start - len(t))
+        _, chk = decode(bytes(exe), start)
+        assert chk == raws, '설명 표 %s 재부호화 검산 실패' % pre
+        sizes.append((pre, len(t), end - start))
+    return sizes

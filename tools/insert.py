@@ -122,7 +122,9 @@ EIGHT = ([chr(0xAC00 + 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍ�
 #     8×8 셀만 그린다(본문 12px 글꼴의 같은 코드 글자와 무관 — 이 표는 8×8 로만 찍힌다).
 #   12px·8×8 양쪽에 찍히는 선수 이름(기본·무작위 이름)은 선 56자로만 쓴다.
 NAME8 = [('0.BIN', 0x778EF, 0x77B73)]
-POOL8 = [c for c in range(0x6E, 0x100) if not 0xA5 <= c <= 0xDC]
+POOL8 = [0x6C, 0x6D, 0x6E, 0x6F, 0x7C, 0x7D, 0x7E, 0x7F, 0x8D, 0x8E, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98,
+         0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC]
+# ★CSFR 8×8 셀 0x60‥0xFF 중 «완전히 빈» 칸 37개만(나머지는 에너지·仙丹·速さ·知力·修復·EXP·ヘルプ·HP 등 UI 그림 — 2026-10-02 실기에서 덮어써 깨짐)
 
 
 def cmap8_of(texts):
@@ -255,7 +257,7 @@ def build(kodir, install=False, keep=False):
     cmap8 = cmap8_of([tr[o['id']] for o in ovl_all if o['id'] in tr
                       and any(o['file'] == nf and a <= o['start'] < z for nf, a, z in NAME8)])
     for o in ovl_all:
-        if o['file'] == '0.BIN' and itemdesc.START <= o['start'] < itemdesc.END:
+        if o['file'] == '0.BIN' and any(a <= o['start'] < z for a, z, *_ in itemdesc.TABLES):
             continue                                             # 아이템 설명 표(압축) 안 조각 — 표를 통째로 다시 짠다
         if o['id'] not in tr:
             continue
@@ -267,11 +269,19 @@ def build(kodir, install=False, keep=False):
         room = o['end'] - o['start']
         if len(new) > room:
             over.append('%s %s:%X 예산 %d B < %d B  %s' % (o['id'], f, o['start'], room, len(new), tr[o['id']])); continue
-        bins[f][o['start']:o['end']] = new + bytes([0 if o['term'] == 0 else 0x20]) * (room - len(new)); nov += 1
+        if o['term'] != 0 and len(new) < room:
+            # ★끝이 01/02(다음 문자열로 이어짐)면 남는 자리를 끝에 채우면 그 공백이 이어진 줄에 찍힌다(실기: 필드 메뉴 빈 줄)
+            #   → 첫 줄 끝(줄바꿈 앞)에 공백을 넣어 안 보이게, 줄바꿈이 없으면 끝 토큰들 앞에
+            t = tr[o['id']]; pad = ' ' * (room - len(new))
+            m = re.search(r'(\{[^}]*\})*$', t)
+            t2 = t.replace('\\n', pad + '\\n', 1) if '\\n' in t else t[:m.start()] + pad + t[m.start():]
+            new = encode(t2, cmap8 if in8 else cmap, nl=5)
+            assert len(new) == room, (o['id'], len(new), room)
+        bins[f][o['start']:o['end']] = new + bytes(room - len(new)); nov += 1
     if over:
         raise SystemExit('⛔오버레이 문자열 예산 초과 %d곳 — 줄일 것\n' % len(over) + '\n'.join(sorted(set(over))))
-    nd = itemdesc.apply(bins['0.BIN'], tr, cmap, encode)          # 아이템 설명 표(0.BIN 0x72BE6‥) 통째로 다시 짜기
-    print('아이템 설명 표 %d B / 칸 %d B' % (nd, itemdesc.END - itemdesc.START))
+    for pre, n, room in itemdesc.apply(bins['0.BIN'], tr, cmap, encode):   # 아이템(I)·선수(M) 설명 표 통째로 다시 짜기
+        print('설명 표 %s %d B / 칸 %d B' % (pre, n, room))
     # ④ 메뉴 8×8 셀 라벨(tools/gfx_menu.py — HELP.BIN 0x1E524)
     import gfx_menu, nameent
     if 'HELP.BIN' not in bins:
