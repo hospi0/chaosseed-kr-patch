@@ -19,7 +19,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, r'C:\claude\project\anearth-kr-patch\tools')
 import bdf
 sys.path.insert(0, HERE)
-import disc, font, lz, tbl, iso
+import disc, font, lz, tbl, iso, vm
 
 GAL = r'C:\claude\utils\font\Galmuri-v2.40.3\Galmuri11.bdf'
 OUT = os.path.join(ROOT, 'work', 'out', os.path.basename(disc.ROM))
@@ -109,6 +109,10 @@ def glyph(F, ch):
     return bytes(out)
 
 
+# 1바이트 칸 우선 음절 — 오버레이 제자리 예산이 1~2바이트 모자란 줄(빌드가 «예산 초과»로 알려 주면 여기 보탠다)
+PREFER1 = set('케브레스메이혼아레크린클릭') | set('다음턴엔뭔가일어날듯')
+
+
 def is_ko(ch):
     return '가' <= ch <= '힣' or 'ㄱ' <= ch <= 'ㅎ'
 
@@ -124,6 +128,8 @@ def charmap(tr, occ):
                 weight[s] += nocc.get(rid, 1)
     for ch in nameent.required():
         weight[ch] += 0                                          # 없으면 0 으로 들어감(맨 뒤)
+    for ch in PREFER1:                                           # 제자리 예산이 빠듯한 오버레이 문자열(인물 이름 표 등) → 1바이트 칸 우선
+        weight[ch] += 10 ** 8
     for v in nameent.UI.values():                                # 이름판 문구는 원래 자리(짧음)에 들어가야 → 1바이트 칸 우선
         for ch in v:
             if is_ko(ch):
@@ -165,30 +171,61 @@ def build(kodir, install=False, keep=False):
         if arc not in arcs:
             arcs[arc] = open(os.path.join(ROOT, 'work', 'disc', arc + '.ADT'), 'rb').read()
         d = arcs[arc]; offs = lz.archive(d)
-        u = bytearray(lz.decompress(d, offs[item] + 1)[0]) if d[offs[item]] == 0x34 else bytearray(d[offs[item] + 1:offs[item + 1]])
-        tail = bytearray()
+        ia, ib = lz.item_span(d, item)
+        u = bytearray(lz.decompress(d, ia + 1)[0]) if d[ia] == 0x34 else bytearray(d[ia + 1:ib])
+        # 점프 대상·진입점(옛 문장 자리 재활용 때 이 주소가 든 구간은 쓰지 않음)
+        tx_, js_, _ = vm.walk(bytes(u))
+        targets = {t for _, t in vm.entries(bytes(u))} | {vm.u16(u, j) for j in js_}
+        free, pend = [], []                                      # free = 재활용 가능 [s, t) · pend = 옮길 (점프 위치, 새 바이트, 돌아갈 곳)
         for o in sorted(os_, key=lambda x: x['start']):
             a, e = o['start'], o['end']
             new = b'\x01' + encode(tr[o['id']], cmap) + bytes([o['term']])
-            if len(new) == e - a + 1:
+            old = e - a + 1
+            if len(new) == old:
                 u[a:e + 1] = new; nin += 1
+            elif len(new) + 3 <= old:                            # 짧아짐: 제자리 + 남는 곳 건너뛰기
+                u[a:a + len(new)] = new
+                u[a + len(new):a + len(new) + 3] = b'\x63' + struct.pack('<H', e + 1)
+                free.append([a + len(new) + 3, e + 1]); nin += 1
+            else:
+                pend.append((a, new, e + 1)); free.append([a + 3, e + 1]); nmv += 1
+        cut = []
+        for s, t in free:                                        # 점프 대상이 든 구간은 그 앞까지만
+            for x in sorted(targets):
+                if s <= x < t:
+                    t = x; break
+            if t - s >= 4:
+                cut.append([s, t])
+        tail = bytearray()
+        for a, new, back in sorted(pend, key=lambda p: -len(p[1])):
+            need = len(new) + 3
+            fit = [r for r in cut if r[1] - r[0] >= need]
+            if fit:
+                r = min(fit, key=lambda r: r[1] - r[0]); at = r[0]
+                u[at:at + need] = new + b'\x63' + struct.pack('<H', back); r[0] += need
             else:
                 at = len(u) + len(tail)
-                u[a:a + 3] = b'\x63' + struct.pack('<H', at)
-                tail += new + b'\x63' + struct.pack('<H', e + 1); nmv += 1
+                tail += new + b'\x63' + struct.pack('<H', back)
+            u[a:a + 3] = b'\x63' + struct.pack('<H', at)
         u += tail
         if len(u) > BUF:
             raise SystemExit('⛔%s/%03d 풀린 크기 %d > 버퍼 %d' % (arc, item, len(u), BUF))
-        if d[offs[item]] == 0x34:
+        if d[ia] == 0x34:
             new_item = b'\x34' + lz.compress(bytes(u))
         else:
-            new_item = d[offs[item]:offs[item] + 1] + bytes(u)
+            new_item = d[ia:ia + 1] + bytes(u)
         arcs[arc] = lz.replace_item(d, item, new_item)
         chk = lz.archive(arcs[arc])
-        assert (lz.decompress(arcs[arc], chk[item] + 1)[0] if new_item[0] == 0x34 else arcs[arc][chk[item] + 1:chk[item + 1]]) == bytes(u)
+        na, nb = lz.item_span(arcs[arc], item)
+        back_ = lz.decompress(arcs[arc], na + 1)[0] if new_item[0] == 0x34 else arcs[arc][na + 1:nb]
+        if back_ != bytes(u):
+            k_ = next((i for i in range(min(len(back_), len(u))) if back_[i] != u[i]), min(len(back_), len(u)))
+            plain = lz.decompress(new_item + b'\0\0', 1)[0] if new_item[0] == 0x34 else None
+            raise SystemExit('⛔%s/%03d 재압축 검산 불일치 @%X (길이 %d/%d, 단독 풀기 일치=%s, 표 %X‥%X)'
+                             % (arc, item, k_, len(back_), len(u), plain == bytes(u), chk[item], chk[item + 1]))
     print('문장 제자리 %d · 끝으로 옮김 %d · 바뀐 묶음 %s' % (nin, nmv, sorted(arcs)))
     # ③ 오버레이 문자열(work/ovl.json, ID V…) — 제자리·원래 바이트 이하, 남는 곳은 끝이 00 이면 00, 아니면 공백(0x20)
-    bins = {'0.BIN': exe}; nov = 0
+    bins = {'0.BIN': exe}; nov = 0; over = []
     for o in json.load(open(os.path.join(ROOT, 'work', 'ovl.json'), encoding='utf-8')):
         if o['id'] not in tr:
             continue
@@ -198,8 +235,10 @@ def build(kodir, install=False, keep=False):
         new = encode(tr[o['id']], cmap, nl=5)
         room = o['end'] - o['start']
         if len(new) > room:
-            raise SystemExit('⛔%s %s:%X 예산 %d B < %d B — 줄일 것' % (o['id'], f, o['start'], room, len(new)))
+            over.append('%s %s:%X 예산 %d B < %d B  %s' % (o['id'], f, o['start'], room, len(new), tr[o['id']])); continue
         bins[f][o['start']:o['end']] = new + bytes([0 if o['term'] == 0 else 0x20]) * (room - len(new)); nov += 1
+    if over:
+        raise SystemExit('⛔오버레이 문자열 예산 초과 %d곳 — 줄일 것\n' % len(over) + '\n'.join(sorted(set(over))))
     # ④ 메뉴 8×8 셀 라벨(tools/gfx_menu.py — HELP.BIN 0x1E524)
     import gfx_menu, nameent
     if 'HELP.BIN' not in bins:

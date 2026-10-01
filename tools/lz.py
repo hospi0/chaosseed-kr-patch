@@ -117,12 +117,20 @@ def compress(data, chain=256):
     return bytes(out)
 
 
+def item_span(d, k):
+    """k 번 항목의 [시작, 끝) — ★표가 순서대로가 아니다(역순·공유 항목): 끝 = 시작보다 큰 표 값 중 가장 작은 것(없으면 파일 끝)"""
+    offs = archive(d); a = offs[k]
+    later = [o for o in offs if o > a]
+    return a, (min(later) if later else len(d))
+
+
 def replace_item(d, k, new):
-    """아카이브 d 의 k 번 항목만 new 로 바꾸고 그 뒤를 차이만큼 민다(표에 빈·역순·공유 항목이 있어 통째로 다시 묶으면 안 됨)"""
-    offs = archive(d); a, b = offs[k], offs[k + 1]; delta = len(new) - (b - a)
-    n = len(offs); out = bytearray(d[:a] + new + d[b:])
+    """아카이브 d 의 k 번 항목만 new 로 바꾸고 그 뒤(시작이 원래 끝 이상인 항목)를 차이만큼 민다
+       (표에 빈·역순·공유 항목이 있어 통째로 다시 묶으면 안 됨)"""
+    offs = archive(d); a, b = item_span(d, k); delta = len(new) - (b - a)
+    out = bytearray(d[:a] + new + d[b:])
     for i, o in enumerate(offs):
-        if o >= b and not (i == k + 1 and False):
+        if o >= b:
             o += delta
         out[3 * i:3 * i + 3] = o.to_bytes(3, 'little')
     return bytes(out)
