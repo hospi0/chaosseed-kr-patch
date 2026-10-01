@@ -5,7 +5,7 @@ r"""대사 추출 — SSS0‥13.ADT 풀린 항목(work/unpack/SSS*.ADT/*.bin)의
   글 모드 안: 0x20↑ 글자(0x18‥0x1F 는 2바이트) · 03/04/05 + 1바이트 · 06 줄바꿈 · 01 페이지 · 07‥0A.
   토큰: \n = 06 · {p} = 안쪽 01 · {03:nn} 대기 · {05:nn} 이름 변수 · {04:nn} · {07}‥{0A} · {c:XXX} 표 밖 코드
         끝이 00(출력 후 메시지 닫기)이면 원문 끝에 {00} 을 붙인다(02 는 표시 안 함).
-  python tools/extract.py  → work/text/chaosseed_NNN.tsv(저장소용 원문) + my files/tsv/ 같은 사본 (29KB 단위) + work/extract.json(전체 출현)
+  python tools/extract.py  → work/text/chaosseed.tsv(저장소용, 한 파일) + my files/tsv/chaosseed_NNN.tsv(사용자용, 29KB 단위) + work/extract.json
   번역은 work/text 를 work/ko 로 복사해 «번역» 열을 채운다(tools/kocheck.py 로 검사).
 """
 import os, sys, glob, json
@@ -146,12 +146,16 @@ def main():
             parts[-1] += cur
         else:
             parts.append(cur)
-    for out in (os.path.join(ROOT, 'work', 'text'), os.path.join(ROOT, 'my files', 'tsv')):
-        os.makedirs(out, exist_ok=True)
-        for p in glob.glob(os.path.join(out, 'chaosseed_*.tsv')):
-            os.remove(p)
-        for n, p in enumerate(parts, 1):
-            open(os.path.join(out, 'chaosseed_%03d.tsv' % n), 'w', encoding='utf-8', newline='\n').write(head + '\n'.join(p) + '\n')
+    # 저장소(work/text)는 한 파일 통째로, 사용자에게 주는 my files/tsv 사본만 29KB 단위로 나눔(사용자 지시 2026-10-01)
+    txt = os.path.join(ROOT, 'work', 'text'); os.makedirs(txt, exist_ok=True)
+    for p in glob.glob(os.path.join(txt, 'chaosseed_*.tsv')):
+        os.remove(p)
+    open(os.path.join(txt, 'chaosseed.tsv'), 'w', encoding='utf-8', newline='\n').write(head + '\n'.join(rows) + '\n')
+    out = os.path.join(ROOT, 'my files', 'tsv'); os.makedirs(out, exist_ok=True)
+    for p in glob.glob(os.path.join(out, 'chaosseed_*.tsv')):
+        os.remove(p)
+    for n, p in enumerate(parts, 1):
+        open(os.path.join(out, 'chaosseed_%03d.tsv' % n), 'w', encoding='utf-8', newline='\n').write(head + '\n'.join(p) + '\n')
     chars = sum(uniq[k][0]['n'] for k in order)
     unsure = sum(1 for key in order if not any(x['sure'] for x in uniq[key]))
     print('출현 %d · 고유 %d(검증필요 %d) · 고유 글자 %d · 파일 %d개' % (len(occ), len(order), unsure, chars, len(parts)))

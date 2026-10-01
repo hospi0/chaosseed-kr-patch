@@ -6,7 +6,7 @@ r"""오버레이·실행 파일 문자열 추출 (2026-10-01) — 메뉴·시스
   거르기: 가나·한자 2자↑ + 대사 말뭉치(work/extract.json)로 만든 글자 2-그램 점수 > −4.2 (진짜 대사 하위 5% ≈ −4.5).
   ⛔포인터를 못 찾았으므로 넣을 때는 «제자리·원래 바이트 이하»(남는 곳은 00 채움 — 끝 표시와 같음) → «구분» 열에 예산 바이트.
   토큰: \n = 05 · {06}‥{0A} · {03:nn} {04:nn} · {c:XXX}
-  python tools/ovl_extract.py → work/text/ovl_001‥.tsv (+ my files/tsv 사본) · work/ovl.json
+  python tools/ovl_extract.py → work/text/ovl.tsv(한 파일) + my files/tsv/ovl_NNN.tsv(사용자용) · work/ovl.json
 """
 import collections, glob, json, math, os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
@@ -116,12 +116,16 @@ def main():
         cur.append(r); size += s
     if cur:
         parts.append(cur)
-    for out in (os.path.join(ROOT, 'work', 'text'), os.path.join(ROOT, 'my files', 'tsv')):
-        os.makedirs(out, exist_ok=True)
-        for p in glob.glob(os.path.join(out, 'ovl_*.tsv')):
-            os.remove(p)
-        for n, p in enumerate(parts, 1):
-            open(os.path.join(out, 'ovl_%03d.tsv' % n), 'w', encoding='utf-8', newline='\n').write(head + '\n'.join(p) + '\n')
+    # 저장소(work/text)는 한 파일, 사용자용 my files/tsv 사본만 29KB 단위
+    txt = os.path.join(ROOT, 'work', 'text'); os.makedirs(txt, exist_ok=True)
+    for p in glob.glob(os.path.join(txt, 'ovl_*.tsv')):
+        os.remove(p)
+    open(os.path.join(txt, 'ovl.tsv'), 'w', encoding='utf-8', newline='\n').write(head + '\n'.join(rows) + '\n')
+    out = os.path.join(ROOT, 'my files', 'tsv'); os.makedirs(out, exist_ok=True)
+    for p in glob.glob(os.path.join(out, 'ovl_*.tsv')):
+        os.remove(p)
+    for n, p in enumerate(parts, 1):
+        open(os.path.join(out, 'ovl_%03d.tsv' % n), 'w', encoding='utf-8', newline='\n').write(head + '\n'.join(p) + '\n')
     per = collections.Counter(o['file'] for o in occ)
     print('출현 %d · 고유 %d · 글자 %d · 파일별 %s' % (len(occ), len(order), sum(uniq[t][0]['n'] for t in order), dict(per)))
 
