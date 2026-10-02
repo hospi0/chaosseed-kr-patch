@@ -60,6 +60,8 @@ def apply(buf, base=BASE):
     try:
         for cell, cw, rows, text, fname in LABELS:
             put(buf, cell, render(text, fname, cw * 8, rows * 8), cw, rows)
+        for cell, n, text in HUD:                              # HUD·상태 창 흰 라벨 — ★HELP.BIN 사본(0x1D524+셀×32)이 실제로 쓰임(2026-10-02 실기 CSFR 만 고쳐선 안 바뀜)
+            put_hud(buf, cell, n, text, base - 0x1000)
     finally:
         globals()['BASE'] = global_base
     return buf
@@ -81,7 +83,7 @@ def put8(buf, code, ch, base):
 HUD = [(32, 5, '에너지'), (37, 2, '선단')]
 
 
-def put_hud(u, cell, n, text):
+def put_hud(u, cell, n, text, org=0):
     pts, _ = font('Galmuri7.bdf').draw(text, 0, 0)
     xs = [x for x, _ in pts]; ys = [y for _, y in pts]
     ink = {(x - min(xs), y - min(ys)) for x, y in pts}
@@ -96,7 +98,7 @@ def put_hud(u, cell, n, text):
     for c in range(n):
         for y in range(8):
             for x in range(0, 8, 2):
-                u[(cell + c) * 32 + y * 4 + x // 2] = (g[y][c * 8 + x] << 4) | g[y][c * 8 + x + 1]
+                u[org + (cell + c) * 32 + y * 4 + x // 2] = (g[y][c * 8 + x] << 4) | g[y][c * 8 + x + 1]
 
 
 def apply_csfr(d, extra=None):

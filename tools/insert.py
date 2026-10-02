@@ -315,20 +315,24 @@ def build(kodir, install=False, keep=False):
     import gfx_load                                              # 그림 글자(제목 RAM 선택·저장 화면·시나리오 간판) — LOAD.BIN 압축 블록 3개
     for blk, (n, room, _) in gfx_load.apply(bins['LOAD.BIN']).items():
         print('LOAD 그림 블록 %X: %d B / %d B' % (blk, n, room))
-    # 필드 메뉴 ヘルプ 아이콘 = 본문 글꼴 0x58·0x59 두 칸(24×14) → 「도움말」(갈무리7, 8px 세 자)
+    import title_logo                                            # 타이틀 로고 한글(LOAD.BIN 0x4B544 그림 + 0x90798 팔레트)
+    n, room = title_logo.apply(bins['LOAD.BIN'])
+    print('타이틀 그림: %d B / %d B' % (n, room))
+    # 본문 글꼴 두 칸(24×14) 아이콘: 0x58·0x59 = 필드 메뉴 ヘルプ → 「도움말」 · 0x5A·0x5B = 상태 창 エネルギ → 「에너지」(갈무리7, 8px 세 자)
     G7 = bdf.Font(os.path.join(os.path.dirname(GAL), 'Galmuri7.bdf'))
-    rows = [0] * 14
-    for k, ch in enumerate('도움말'):
-        pts, _ = G7.draw(ch, 0, 0)
-        y0 = min(y for _, y in pts); h = max(y for _, y in pts) - y0 + 1
-        for x, y in pts:
-            X, Y = k * 8 + x, y - y0 + (14 - h) // 2
-            if 0 <= X < 24 and 0 <= Y < 14:
-                rows[Y] |= 1 << (23 - X)
-    for half, c in ((0, 0x58), (1, 0x59)):
-        rr = [(r >> (12 * (1 - half))) & 0xFFF for r in rows]
-        o = font.OFF + (c - 0x20) * 21
-        exe[o:o + 21] = b''.join(bytes([rr[2 * i] & 0xFF, rr[2 * i + 1] & 0xFF, (rr[2 * i] >> 8) | ((rr[2 * i + 1] >> 8) << 4)]) for i in range(7))
+    for word, c0 in (('도움말', 0x58), ('에너지', 0x5A)):
+        rows = [0] * 14
+        for k, ch in enumerate(word):
+            pts, _ = G7.draw(ch, 0, 0)
+            y0 = min(y for _, y in pts); h = max(y for _, y in pts) - y0 + 1
+            for x, y in pts:
+                X, Y = k * 8 + x, y - y0 + (14 - h) // 2
+                if 0 <= X < 24 and 0 <= Y < 14:
+                    rows[Y] |= 1 << (23 - X)
+        for half, c in ((0, c0), (1, c0 + 1)):
+            rr = [(r >> (12 * (1 - half))) & 0xFFF for r in rows]
+            o = font.OFF + (c - 0x20) * 21
+            exe[o:o + 21] = b''.join(bytes([rr[2 * i] & 0xFF, rr[2 * i + 1] & 0xFF, (rr[2 * i] >> 8) | ((rr[2 * i + 1] >> 8) << 4)]) for i in range(7))
     # 상태 화면 「技 なし」 등 오버레이 추출에서 빠진 なし(2바이트 82 79) → 없음
     nashi = encode('없음', cmap)
     if len(nashi) != 2:

@@ -31,7 +31,8 @@ TITLE = [(11, ''), (12, '카'), (13, '트'), (14, '리'), (15, '지'), (16, ''),
          (17, '을'), (18, '사'), (19, '용'), (20, '하'), (21, '기'), (22, '본'), (23, '체')]
 
 
-# ★제목 줄 글자 간격 = 13px(실기 «본→체» 실측, 칸은 16 폭이라 겹침) · 저장 화면은 16px 남짓
+# ★제목 줄 11‥16칸 화면 위치 = 93·107·120·133·146·158(실기 스샷에 칸 그림 맞춰 실측 — 간격 14·13·13·13·12, 일정하지 않음)
+TITLE_OFFS = [0, 14, 27, 40, 53, 65]
 ROOF = 40           # 굵은 첫 글자(원래 空) 스프라이트만 39번 칸 아래 4줄에서 시작 → 16줄 틀에 그려 39칸 12‥15줄 + 40칸 0‥11줄로 나눔
 LEFT = {75, 76}     # 삭제: 원본처럼 칸 왼쪽에(실기 «한 칸 앞으로»)
 
@@ -125,7 +126,7 @@ def apply(L):
                         u[39 * 128 + (12 + y) * 8 + x // 2] = (g[y][x] << 4) | g[y][x + 1]
                 g = g[4:] + [[0] * 16 for _ in range(4)]
             put(u, t, g)
-        if blk == 0x166F4:                                      # 카트리지: 6칸 × 13px 에 네 자(19px 간격, 가로 1.4배) — 줄 시작·RAM 붙임
+        if blk == 0x166F4:                                      # 카트리지: 81px(6칸 실측 위치) 에 네 자(20px 간격, 가로 1.4배) — 줄 시작·RAM 붙임
             canvas = set()
             for k, ch in enumerate('카트리지'):
                 pts, _ = font('Galmuri11-Bold.bdf').draw(ch, 0, 0)
@@ -133,8 +134,8 @@ def apply(L):
                 x0, y0 = min(xs), min(ys); ih = max(ys) - y0 + 1
                 for x, y in pts:
                     for xx in range(int((x - x0) * 1.4), int((x - x0 + 1) * 1.4)):
-                        canvas.add((k * 19 + 1 + xx, y - y0 + (15 - ih) // 2))
-            W = 13 * 5 + 16
+                        canvas.add((k * 20 + 1 + xx, y - y0 + (15 - ih) // 2))
+            W = TITLE_OFFS[-1] + 16
             full = [[0] * W for _ in range(16)]
             shadow = {(x + 1, y + 1) for x, y in canvas if x + 1 < W and y + 1 < 16} - canvas
             body = canvas | shadow
@@ -148,9 +149,9 @@ def apply(L):
                 full[y][x] = 12
             for x, y in canvas:
                 full[y][x] = 14 if y >= 11 else 15
-            for c in range(6):                                  # 칸 c 는 화면 13c 부터 — 겹치는 오른쪽 3px 는 비움(마지막 칸만 16px)
-                wdt = 16 if c == 5 else 13
-                g = [[full[y][13 * c + x] if x < wdt else 0 for x in range(16)] for y in range(16)]
+            for c in range(6):                                  # 칸 c 는 화면 TITLE_OFFS[c] 부터 — 다음 칸과 겹치는 오른쪽은 비움(마지막 칸만 16px)
+                o = TITLE_OFFS[c]; wdt = 16 if c == 5 else TITLE_OFFS[c + 1] - o
+                g = [[full[y][o + x] if x < wdt else 0 for x in range(16)] for y in range(16)]
                 put(u, 11 + c, g)
         if blk == 0x155AB and 0x13916 in done:                  # 시나리오 화면 «0回終»(하늘색) = 저장 화면 64‥65칸 사본, 반 칸 어긋난 0x2C0·0x340 · 색 3→4
             src = done[0x13916][2]
