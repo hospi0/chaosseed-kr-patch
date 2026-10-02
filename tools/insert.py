@@ -649,6 +649,9 @@ def build(kodir, install=False, keep=False):
     if grow > 60000:
         raise SystemExit('⛔SSS 파일 증가 %d B — 힙 여유를 넘을 수 있음' % grow)
     files['0.BIN'] = bytes(exe)
+    import glob                                                  # 동영상 자막(tools/moviesub.py → work/kr/*.AVI, TrueMotion 1 다시 부호화 — 커지면 iso.patch 가 끝으로 옮김)
+    for p in sorted(glob.glob(os.path.join(ROOT, 'work', 'kr', '*.AVI'))):
+        files[os.path.basename(p)] = open(p, 'rb').read()
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     iso.patch(disc.ROM, OUT, files)
     open(os.path.join(ROOT, 'work', 'out', 'charmap.tsv'), 'w', encoding='utf-8').write(
