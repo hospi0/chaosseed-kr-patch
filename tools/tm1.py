@@ -181,6 +181,107 @@ class Decoder:
         return F
 
 
+class GDecoder(Decoder):
+    """★게임(새턴) 24비트 모델 — 낱말 하나 = 화소 2개(2026-10-03 실기 VRAM 과 304/304 일치 검증).
+    Y 쌍 p1 = 왼쪽 밝기 Ya, p2 = 오른쪽 밝기 Yb, C 쌍 = 공용 색(CR, CB). ffmpeg 낱말 (R, G, B) = (Yb+CR, Yb, Ya+CB) 이고
+    d = Ya − Yb 를 따로 쌓는다(dframe) → 왼쪽 = (R+d, G+d, B), 오른쪽 = (R, G, B−d) (성분 mod 256).
+    16비트는 Decoder 와 같다(dframe 은 0)."""
+    def decode(self, buf):
+        if len(buf) < 2:                             # 빈 덩어리 = 앞 화면 유지
+            return self.frame
+        h = header(buf)
+        alg, bw, bh, bt = COMP[h['compression']]
+        if alg == 0:                                 # ★NOP = 앞 화면 유지(ffmpeg 는 여기서 화면 크기를 304폭으로 바꿨다 되돌리며 버퍼를 버려
+            return self.frame                        #   다음 키 프레임까지 인터 프레임이 깨진다 — OPENING 37‥48초)
+        b16 = alg in (1, 2)
+        ws = 0 if b16 else 1
+        w, hgt = h['xsize'] >> ws, h['ysize']                 # 화소 폭(24비트는 머리 xsize 의 절반)
+        nw = w >> 1 if b16 else w                             # 한 줄 32비트 낱말 수(16비트 = 화소 2개/낱말)
+        key = (h['deltaset'], h['vectable'], h['compression'], h['header_type'])
+        if key != self.key:
+            self.tab = Tables(*key); self.key = key
+        if self.frame is None or (w, hgt, b16) != (self.w, self.h, self.b16):
+            self.w, self.h, self.b16 = w, hgt, b16; self.frame = [[0] * nw for _ in range(hgt)]
+        rowsize = ((w >> (2 - ws)) + 7) >> 3
+        keyframe = h['kflags'] & FLAG_KEYFRAME
+        mb = h['size']
+        idx_pos = mb if keyframe else mb + rowsize * (hgt >> 2)
+        T = self.tab; Y, C, FY, FC = T.y, T.c, T.fy, T.fc
+        if not hasattr(T, 'yd'):
+            ydt, cdt, fydt, fcdt = delta_tables(self.key[0])
+            T.yd = [0] * 1024; T.fyd = [0] * 1024
+            for i, ent in enumerate(T.cb):
+                for j, (p1, p2) in enumerate(ent):
+                    T.yd[i * 4 + j] = ydt[p1] - ydt[p2]; T.fyd[i * 4 + j] = fydt[p1] - fydt[p2]
+        if getattr(self, 'dframe', None) is None or len(self.dframe) != hgt:
+            self.dframe = [[0] * nw for _ in range(hgt)]
+        DF = self.dframe; dvert = [0] * nw
+        st = {'p': idx_pos}
+
+        def nxt():
+            v = buf[st['p']] * 4; st['p'] += 1
+            return v
+        vert = [0] * nw
+        index = nxt()
+        hp = 0
+        F = self.frame
+        for y in range(hgt):
+            hp = 0; dh = 0
+            row = F[y]; drow = DF[y]
+            cbits = buf[mb + (y >> 2) * rowsize: mb + (y >> 2) * rowsize + rowsize]
+            x = 0
+            for blk in range(nw >> 1):
+                changed = keyframe or not (cbits[blk >> 3] >> (blk & 7)) & 1
+                if changed:
+                    r = y & 3
+                    if r == 0:
+                        seq = 'CYCY' if bw == 2 else 'CYY'
+                    elif r == 2:
+                        seq = 'CYCY' if bt == BLOCK_2x2 else ('CYY' if bt == BLOCK_4x2 else 'YY')
+                    else:
+                        seq = 'YY'
+                    for op in seq:
+                        tb, ftb = (C, FC) if op == 'C' else (Y, FY)
+                        pp = tb[index]; hp = (hp + (pp >> 1)) & M32
+                        if op == 'Y': dh += T.yd[index]
+                        if pp & 1:
+                            index = nxt()
+                            if not index:
+                                index = nxt()
+                                if b16:                      # 16비트 이스케이프 = 같은 표 ×5
+                                    pp = tb[index]; hp = (hp + (pp >> 1) * 5) & M32
+                                else:
+                                    pp = ftb[index]; hp = (hp + (pp >> 1)) & M32
+                                    if op == 'Y': dh += T.fyd[index]
+                                if pp & 1:
+                                    index = nxt()
+                                else:
+                                    index += 1
+                        else:
+                            index += 1
+                        if op == 'Y':
+                            v = (vert[x] + hp) & M32
+                            row[x] = v; vert[x] = v
+                            dv = dvert[x] + dh; drow[x] = dv; dvert[x] = dv; x += 1
+                else:
+                    vert[x] = row[x]; dvert[x] = drow[x]; x += 1
+                    hp = (row[x] - vert[x]) & M32; dh = drow[x] - dvert[x]
+                    vert[x] = row[x]; dvert[x] = drow[x]; x += 1
+        return F
+
+
+
+
+def game_rgb(F, DF):
+    """GDecoder 화면 → 304폭 RGB 바이트(게임 화면 그대로)"""
+    out = bytearray()
+    for row, drow in zip(F, DF):
+        for v, d in zip(row, drow):
+            R, G, B = (v >> 16) & 255, (v >> 8) & 255, v & 255
+            out += bytes(((R + d) & 255, (G + d) & 255, B, R, G, (B - d) & 255))
+    return bytes(out)
+
+
 def avi_frames(path):
     """AVI movi 의 00dc·00db(키) 덩어리 목록 [(파일 안 오프셋, 바이트)]"""
     d = open(path, 'rb').read()

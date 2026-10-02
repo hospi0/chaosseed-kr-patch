@@ -75,7 +75,7 @@ def entry(b, a):
 
 # 같은 형식의 표 — (시작, 끝, ID 머리, 한 줄 폭, 번역 파일). 선수 설명 표는 26개 뒤 오프셋이 FFFF(없음)·마지막 항목은 00 으로 끝남
 END_U = 0x700B1        # 강화 설명 표 데이터 끝(뒤 = 강화 이름 오프셋 표)
-TABLES = [(0x72BE6, 0x747F0, 'I', 12, 'itemdesc.tsv'), (0x77B6C, 0x782C8, 'M', 18, 'mondesc.tsv'),
+TABLES = [(0x72BE6, 0x747F0, 'I', 12, 'itemdesc.tsv'), (0x77B6C, 0x782C8, 'M', 17, 'mondesc.tsv'),
           (0x6FD50, END_U, 'U', 24, 'upgdesc.tsv')]   # U = 강화 항목 설명(192칸)
 
 

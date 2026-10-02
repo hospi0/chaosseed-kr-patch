@@ -24,7 +24,8 @@ def pack(R, G, B, b16):
 
 
 class BandEnc:
-    def __init__(self, tab, ds, b16, bw, bt, y0, tol=None):
+    def __init__(self, tab, ds, b16, bw, bt, y0, tol=None, coarse=0):
+        self.coarse = coarse              # ★0‥ : 클수록 이스케이프를 덜 써서 바이트를 줄인다(덩어리 크기 한도용, 2026-10-03)
         self.b16, self.bw, self.bt, self.y0 = b16, bw, bt, y0
         self.ydt, self.cdt, self.fydt, self.fcdt = tm1.delta_tables(ds)
         self.mx = 31 if b16 else 255
@@ -54,7 +55,7 @@ class BandEnc:
         a = self.nearest(dR, cdt); b = self.nearest(dB, cdt) if self.b16 else self.allowed[0] if cdt[self.allowed[0]] == 0 else self.nearest(0, cdt)
         add = [cdt[a], cdt[b]]; esc = None
         rem = [dR - add[0], (dB - add[1]) if self.b16 else 0]
-        lim = 4 if self.b16 else 24
+        lim = (4 if self.b16 else 24) * (1 + self.coarse)
         if abs(rem[0]) > lim or abs(rem[1]) > lim:
             ft = [v * 5 for v in cdt] if self.b16 else self.fcdt
             ea = self.nearest(rem[0], ft); eb = self.nearest(rem[1], ft) if self.b16 else self.nearest(0, ft)
@@ -82,7 +83,7 @@ class BandEnc:
                 e = err(g, ydt[a])
                 if e is not None and (best is None or e < best[0]):
                     best = (e, a, None, ydt[a])
-            if best is None or best[0] > (12 if self.b16 else 900):
+            if best is None or best[0] > (12 if self.b16 else 900) * (1 + self.coarse) ** 2:
                 need_esc = True
             res.append(best)
         esc = None
@@ -99,7 +100,7 @@ class BandEnc:
                 alt.append(best)
             old = sum(c[0] for c in res) if all(res) else 10 ** 9
             new = sum(c[0] for c in alt)
-            if new < old - (8 if self.b16 else 400):
+            if new < old - (8 if self.b16 else 400) * (1 + self.coarse) ** 2:
                 z = self.nearest(0, ft)
                 res = alt
                 esc = tuple(c[2] if c[2] is not None else z for c in alt)
@@ -181,6 +182,155 @@ class BandEnc:
                             raise AssertionError(('범위 밖', y, x, P))
                         row[x] = pack(P[0], P[1], P[2], b16); vert[x] = P
                         ops.append((blk, 'Y', pair, esc))
+                        x += 1
+            rows_ops.append(ops)
+        return rows_ops, cb_rows
+
+
+CMAX = 40
+
+
+class BandEnc24G(BandEnc):
+    """★24비트 «게임 모델» 띠 인코더(2026-10-03) — 새턴은 낱말 하나를 화소 2개로 낸다(tm1.GDecoder).
+    Y 쌍: p1 → 왼쪽 밝기 Ya(ffmpeg 낱말의 B), p2 → 오른쪽 밝기 Yb(R·G), d = Ya − Yb 를 따로 쌓는다.
+    목표 = 304폭 게임 화소(왼쪽 tl, 오른쪽 tr). 왼쪽·오른쪽 오차가 p1·p2 로 갈라지므로 따로 고른다.
+    ffmpeg 모델로만 맞추면 좌우 밝기 차가 커져 게임에서 파란 점·흰 얼룩(2026-10-03 실기)."""
+
+    def side(self, Y, CR, CB, t, ydt, ft):
+        """한쪽 밝기 Y 를 목표 화소 t 에 맞출 (색인, 이스케이프 색인 or None, 더할 값)"""
+        def err(Yn):
+            p = (Yn + CR, Yn, Yn + CB)
+            if min(p) < 0 or max(p) > 255:
+                return None
+            return sum((a - b) ** 2 for a, b in zip(p, t))
+        best = None
+        for a in self.allowed:
+            e = err(Y + ydt[a])
+            if e is not None and (best is None or e < best[0]):
+                best = (e, a, None, ydt[a])
+        if best is None or best[0] > 300 * (1 + self.coarse) ** 2:
+            for a in self.allowed:
+                for b in self.allowed:
+                    dv = ydt[a] + ft[b]; e = err(Y + dv)
+                    if e is not None and (best is None or e < best[0] - 300 * (1 + self.coarse) ** 2):
+                        best = (e, a, b, dv)
+        if best is None:                              # 범위 안 후보가 없으면 가장 덜 넘는 것
+            best = min(((abs(min(0, Y + ydt[a] + min(CR, CB, 0))) + max(0, Y + ydt[a] + max(CR, CB, 0) - 255), a, None, ydt[a])
+                        for a in self.allowed))
+        return best
+
+    def feasible(self, Y, CR, CB):
+        lo, hi = min(0, CR, CB), max(0, CR, CB)
+        ds = [self.ydt[a] for a in self.allowed] + [self.ydt[a] + self.fydt[b] for a in self.allowed for b in self.allowed]
+        return any(Y + v + lo >= 0 and Y + v + hi <= 255 for v in ds)
+
+    def encode_game(self, cur, curd, prev_rows, prevd, target, keyframe):
+        """cur/curd = 현재 프레임 낱말·d(띠 위는 원본) · prev_rows/prevd = 이전 출력 프레임 · target[y][x] = (tl, tr) 게임 화소"""
+        nw = len(cur[0]); nblk = nw >> 1; hgt = len(cur)
+        ydt = self.ydt; ft = self.fydt
+        def game(v, d):
+            R, G, B = (v >> 16) & 255, (v >> 8) & 255, v & 255
+            return ((R + d) & 255, (G + d) & 255, B), (R, G, (B - d) & 255)
+        changed = {}; cb_rows = []
+        for by in range(self.y0 >> 2, hgt >> 2):
+            bits = bytearray((nblk + 7) >> 3)
+            for blk in range(nblk):
+                ch = bool(keyframe)
+                if not ch:
+                    for y in range(by * 4, by * 4 + 4):
+                        for x in (blk * 2, blk * 2 + 1):
+                            gl, gr = game(prev_rows[y][x], prevd[y][x]); tl, tr = target[y][x]
+                            if any(abs(a - b) > self.tol for a, b in zip(gl + gr, tl + tr)):
+                                ch = True; break
+                        if ch:
+                            break
+                changed[(by, blk)] = ch
+                if not ch:
+                    bits[blk >> 3] |= 1 << (blk & 7)
+            cb_rows.append(bytes(bits))
+        if self.y0 > 0:
+            vert = [list(map(list, unpack(v, False))) for v in cur[self.y0 - 1]]; dvert = list(curd[self.y0 - 1])
+        else:
+            vert = [[[0], [0], [0]] for _ in range(nw)]; dvert = [0] * nw
+        z = self.nearest(0, ft)
+        rows_ops = []
+        for y in range(self.y0, hgt):
+            H = [[0], [0], [0]]; dh = 0
+            row = cur[y]; drow = curd[y]; ops = []; x = 0
+            seq = tm1enc.ops_seq(y & 3, self.bw, self.bt)
+            for blk in range(nblk):
+                if not changed[(y >> 2, blk)]:
+                    for k in (0, 1):
+                        pv = prev_rows[y][x]; pd = prevd[y][x]; row[x] = pv; drow[x] = pd
+                        P = unpack(pv, False)
+                        if k == 1:
+                            H = [[P[c][0] - vert[x][c][0]] for c in range(3)]; dh = pd - dvert[x]
+                        vert[x] = [list(P[c]) for c in range(3)]; dvert[x] = pd
+                        x += 1
+                    continue
+                for si, op in enumerate(seq):
+                    if op == 'C':
+                        xs = []
+                        for j in range(si + 1, len(seq)):
+                            if seq[j] == 'C':
+                                break
+                            xs.append(x + len(xs))
+                        dR = dB = 0.0; n = 0
+                        for xx in xs:
+                            tl, tr = target[y][xx]
+                            R = vert[xx][0][0] + H[0][0]; G = vert[xx][1][0] + H[1][0]; B = vert[xx][2][0] + H[2][0]
+                            d = dvert[xx] + dh
+                            for t in (tl, tr):
+                                dR += (t[0] - t[1]) - (R - G); dB += (t[2] - t[1]) - (B - G - d); n += 1
+                        # ★다음 Y 들이 범위 안 값을 고를 수 있는 색만(크로마가 너무 크면 Y 가 어떤 값이든 0‥255 를 벗어난다)
+                        # 크로마는 아래 줄(같은 블록의 Y 만 있는 줄)로도 세로로 이어진다 → |CR|·|CB| ≤ CMAX 로 묶어 밝기가 어디로 가도 범위 안
+                        x0 = xs[0]
+                        cR = vert[x0][0][0] + H[0][0] - (vert[x0][1][0] + H[1][0])
+                        cB = vert[x0][2][0] + H[2][0] - (vert[x0][1][0] + H[1][0]) - (dvert[x0] + dh)
+                        cands = [(dR / max(n, 1), dB / max(n, 1)), (0.5 * dR / max(n, 1), 0.5 * dB / max(n, 1)), (0.0, 0.0), (-cR, -cB)]
+                        best_c = None
+                        for tR, tB in cands:
+                            pair, esc, add = self.pick_c(tR, tB)
+                            worst = 0
+                            for xx in xs:
+                                R = vert[xx][0][0] + H[0][0] + add[0]; G = vert[xx][1][0] + H[1][0]; B = vert[xx][2][0] + H[2][0] + add[1]
+                                d = dvert[xx] + dh
+                                CR, CB = R - G, B - G - d
+                                tl, tr = target[y][xx]                 # 목표 색만큼은 허용(채도 높은 색을 자르지 않게)
+                                bR = max(CMAX, abs(tl[0] - tl[1]) + 10, abs(tr[0] - tr[1]) + 10)
+                                bB = max(CMAX, abs(tl[2] - tl[1]) + 10, abs(tr[2] - tr[1]) + 10)
+                                worst = max(worst, abs(CR) - bR, abs(CB) - bB)
+                                if not (self.feasible(G + d, CR, CB) and self.feasible(G, CR, CB)):
+                                    worst = max(worst, 999)
+                            if best_c is None or worst < best_c[0]:
+                                best_c = (worst, pair, esc, add)
+                            if worst <= 0:
+                                break
+                        _, pair, esc, add = best_c
+                        H[0][0] += add[0]; H[2][0] += add[1]
+                        ops.append((blk, 'C', pair, esc))
+                    else:
+                        tl, tr = target[y][x]
+                        R = vert[x][0][0] + H[0][0]; G = vert[x][1][0] + H[1][0]; B = vert[x][2][0] + H[2][0]
+                        d = dvert[x] + dh
+                        Ya, Yb = G + d, G; CR, CB = R - G, B - G - d
+                        _, a, ea, da = self.side(Ya, CR, CB, tl, ydt, ft)
+                        _, b, eb, db = self.side(Yb, CR, CB, tr, ydt, ft)
+                        esc = None
+                        if ea is not None or eb is not None:
+                            if ea is None:
+                                ea = z; da += ft[z]
+                            if eb is None:
+                                eb = z; db += ft[z]
+                            esc = (ea, eb)
+                        H[2][0] += da; H[0][0] += db; H[1][0] += db; dh += da - db
+                        P = [vert[x][c][0] + H[c][0] for c in range(3)]
+                        if not all(0 <= v <= 255 for v in P):
+                            self.oob = getattr(self, 'oob', 0) + 1      # 드문 경우 — 그대로 둔다(게임은 성분 mod 256)
+                        row[x] = pack([max(0, min(255, v)) for v in P[:1]], [max(0, min(255, P[1]))], [max(0, min(255, P[2]))], False) if not all(0 <= v <= 255 for v in P) else pack([P[0]], [P[1]], [P[2]], False)
+                        vert[x] = [[P[0]], [P[1]], [P[2]]]
+                        dvert[x] = d + da - db; drow[x] = dvert[x]          # 이 화소의 d = 위 d + 쌓인 dh
+                        ops.append((blk, 'Y', (a, b), esc))
                         x += 1
             rows_ops.append(ops)
         return rows_ops, cb_rows

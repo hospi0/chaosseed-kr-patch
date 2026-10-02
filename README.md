@@ -1,9 +1,9 @@
 # 선굴활룡대전 카오스 시드 (새턴 JP) 한글화 — 작업 저장소(비공개)
 
 ## 내려받기
-- 최신 **v0.9** — [릴리즈](https://github.com/hospi0/chaosseed-kr-patch/releases/latest)에서 `ChaosSeed_KR_v0.9.zip`
+- 최신 **v0.8** — [릴리즈](https://github.com/hospi0/chaosseed-kr-patch/releases/latest)에서 `ChaosSeed_KR_v0.8.zip`
 - 대상: `Senkutsu Katsuryu Taisen - Chaos Seed (Japan) (Disc 1) (Game Disc) (Rev B) (21M)` 트랙 1 (트랙 2개)
-- 원본md5 `B9B3F25F82877771DED23FE0DAE8A9BC` → 패치md5 `0093EA756E2F500D13970578A46B0962`
+- 원본md5 `B9B3F25F82877771DED23FE0DAE8A9BC` → 패치md5 `17D5B8E29882AE9EA916F5E55F5B7330`
 
 ## 작업 저장소
 

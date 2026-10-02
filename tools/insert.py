@@ -126,6 +126,12 @@ EIGHT = ([chr(0xAC00 + 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍ�
 #     8×8 셀만 그린다(본문 12px 글꼴의 같은 코드 글자와 무관 — 이 표는 8×8 로만 찍힌다).
 #   12px·8×8 양쪽에 찍히는 선수 이름(기본·무작위 이름)은 선 56자로만 쓴다.
 NAME8 = [('0.BIN', 0x778EF, 0x77B73)]
+# ★추출에서 빠진 CS.BIN 오버레이 문구(앞 {10:xx:yy} 뒤 01 에 막힘 — 실기 2026-10-03 «란그용테겠정공?»·«LR겠데프−뭐돼겠») — (위치, 원문 바이트, 번역), 원래 길이 그대로
+MISSED = [(0x7D3BA, '9398796fea7a7322', ('할까요?', '하시겠어요?', '좋습니까?', '괜찮을까요?')),          # 아이템 버리기 «よろしいですか?»
+          (0x7D7CC, '9398796fea7a7322', ('할까요?', '하시겠어요?', '좋습니까?', '괜찮을까요?')),          # 굴삭 중지
+          (0x7E85B, '9398796fea7a7322', ('할까요?', '하시겠어요?', '좋습니까?', '괜찮을까요?')),
+          (0x7D95E, '454beaf8cd2d180c1883193e', ('LR로 그룹 변경', 'LR로 그룹 바꾸기', 'LR 그룹 변경', 'LR로 그룹변경')),   # 시점 고르기 아래 안내
+          (0x7BEE9, '1a8d1947', ('확률', '명중'))]   # 함정 설치 목록 «確率»(W00473 은 앞 66 1B 01 오독으로 잡음 처리 — 실기 «덩떨»)
 SKILLS = ['호구회전', '대화염', '천뢰파', '폭축파', '사석광', '백련천궁', '대호읍', '여의', '봉황천무', '연축연탄', '천지호뢰',
           '강구회천', '열화포', '암뢰파', '화염탄', '사석효', '백려천궁', '대절규', '돌봉', '공작연무', '염습연탄', '천신강래', '멸시선']
 #   ↑ 豪球回転·大火炎·天雷破·爆縮破·邪石光·百連天弓·大号泣·如意·鳳凰天舞·練縮連弾·天地豪雷·剛球回天·烈火砲·闇雷破·火炎弾·蛇石効·白麗天弓·大絶叫·突棒·孔雀連舞·炎襲連弾·天神降来·滅視線
@@ -251,6 +257,7 @@ def build(kodir, install=False, keep=False):
     import itemdesc
     tr.update(itemdesc.load_ko())                                # 아이템 설명(I###, tools/itemdesc.py) — 글자표에 포함
     tr.update({'SK%02d' % i: n for i, n in enumerate(SKILLS)})   # 기술 이름(직접 패치) — 글자표에 포함
+    tr.update({'MS%02d' % i: m[2][0] for i, m in enumerate(MISSED)})
     pins = name8_pins(tr)
     cmap = charmap(tr, occ, pins)
     print('번역 %d줄 · 글자표 한글 %d자(칸 %d)' % (len(tr), len(cmap), len(ONE) + len(TWO)))
@@ -541,6 +548,30 @@ def build(kodir, install=False, keep=False):
                           (0x7C6CE, '19cd19ce', '내구'), (0x7C6DF, '1a841a85', '축적'), (0x7C6EB, '18c0188e', '생산')):
         assert bytes(cs0[off:off + 4]) == bytes.fromhex(orig) and bytes(bins['CS.BIN'][off:off + 4]) == bytes.fromhex(orig), hex(off)
         bins['CS.BIN'][off:off + 4] = two(ko[0]) + two(ko[1])
+    # ★소환 화면 선수 정보 라벨 «技»(CS.BIN 0x7AC30, W01308 «0D 01 | 19 4F 技 | 05 武器 | 05 防具») — 추출이 0D 를 인자 2개로 읽어 19 를 먹고 4F 를 «V» 로 남김
+    #   → 19 4F 가 그대로 남아 한글 글자표의 0x24F(«밑»)가 찍힘(실기 2026-10-03). 2 B 자리에 «기술»(1바이트 음절 둘, 아니면 2바이트 한 칸 «기»)
+    sk = encode('기술', cmap)
+    if len(sk) != 2:
+        sk = two('기')
+    assert bytes(cs0[0x7AC2E:0x7AC32]) == bytes.fromhex('0d01194f') and bytes(bins['CS.BIN'][0x7AC30:0x7AC32]) == b'\x19\x4f'
+    bins['CS.BIN'][0x7AC30:0x7AC32] = sk
+    for off, orig, cands in MISSED:                              # 빠진 문구 — 원래 길이 그대로(후보 중 1바이트 음절 {2:} 사본 칸·빈 2바이트 칸으로 «정확히» 맞는 첫 것)
+        room = len(orig) // 2
+        assert bytes(cs0[off:off + room]) == bytes.fromhex(orig) and bytes(bins['CS.BIN'][off:off + room]) == bytes.fromhex(orig), hex(off)
+        for ko in cands:
+            if any(ch not in cmap for ch in ko if is_ko(ch)):
+                continue
+            new = encode(ko, cmap, nl=5)
+            if len(new) < room:
+                t2, rem = alias_text(ko, room - len(new), cmap)
+                new = encode(t2, cmap, nl=5)
+            while len(new) + 2 <= room:
+                new += code_bytes(PUN[BLANK])
+            if len(new) == room:
+                break
+        assert len(new) == room, ('빠진 문구 길이', cands, len(new), room)
+        print('빠진 문구 %X: %s' % (off, ko))
+        bins['CS.BIN'][off:off + room] = new
     # ★기술 이름 23개(0.BIN 0x78D05‥, «없음» 0x78D02 다음부터 NUL 로 이어진 목록 — 포인터 없이 순번으로 찾음, 추출에서 빠졌었다)
     #   상태 창 «기 쾌둿작멀»(실기 2026-10-02) → 한자음. 각 항목 원래 바이트 그대로(1바이트 음절은 {2:} 사본 칸, 그래도 남으면 빈 2바이트 칸)
     o0 = _orig.setdefault('0.BIN', open(os.path.join(ROOT, 'work', 'disc', '0.BIN'), 'rb').read())
@@ -617,6 +648,18 @@ def build(kodir, install=False, keep=False):
             rr = [(r >> (12 * (1 - half))) & 0xFFF for r in rows]
             o = font.OFF + (c - 0x20) * 21
             exe[o:o + 21] = b''.join(bytes([rr[2 * i] & 0xFF, rr[2 * i + 1] & 0xFF, (rr[2 * i] >> 8) | ((rr[2 * i + 1] >> 8) << 4)]) for i in range(7))
+    # 소환 목록 등급 표시(한 칸 12×14에 두 글자 위아래): 0x6A 太仙 → 태/선 · 0x6B 小仙 → 소/선(갈무리7, 위 0‥6줄·아래 7‥13줄, 가로 가운데)
+    for word, c in (('태선', 0x6A), ('소선', 0x6B)):
+        rows = [0] * 14
+        for k, ch in enumerate(word):
+            pts, _ = G7.draw(ch, 0, 0)
+            y1 = max(y for _, y in pts); w = max(x for x, _ in pts) + 1
+            for x, y in pts:
+                X, Y = x + (11 - w + 1) // 2, y - y1 + 6 + 7 * k
+                if 0 <= X < 12 and 0 <= Y < 14:
+                    rows[Y] |= 0x800 >> X
+        o = font.OFF + (c - 0x20) * 21
+        exe[o:o + 21] = b''.join(bytes([rows[2 * i] & 0xFF, rows[2 * i + 1] & 0xFF, (rows[2 * i] >> 8) | ((rows[2 * i + 1] >> 8) << 4)]) for i in range(7))
     # 상태 화면 「技 なし」 등 오버레이 추출에서 빠진 なし(2바이트 82 79) → 없음
     nashi = encode('없음', cmap)
     if len(nashi) != 2:

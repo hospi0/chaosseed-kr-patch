@@ -7,6 +7,9 @@ import os, struct, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 _D = 'C:/claude/roms/ss/Senkutsu Katsuryu Taisen - Chaos Seed (Japan) (Disc 1) (Game Disc) (Rev B) (21M)'
 ROM = '\\\\?\\' + os.path.join(_D, os.path.basename(_D) + ' (Track 1).bin').replace('/', os.sep)   # 경로 260자 초과 대비 \\?\
+if not os.path.exists(ROM):                                   # 2026-10-03 사용자가 roms/ss/완료/ 로 옮김
+    _D2 = os.path.join(os.path.dirname(_D), '완료', os.path.basename(_D))
+    ROM = '\\\\?\\' + os.path.join(_D2, os.path.basename(_D) + ' (Track 1).bin').replace('/', os.sep)
 if not os.path.exists(ROM):                                   # 예전 두 겹 폴더(2026-10-02 사용자가 한 겹으로 정리)
     ROM = '\\\\?\\' + os.path.join(_D, os.path.basename(_D), os.path.basename(_D) + ' (Track 1).bin').replace('/', os.sep)
 OUT = os.path.join(ROOT, 'work', 'disc')

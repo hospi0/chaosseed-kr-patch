@@ -8,7 +8,7 @@ HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import disc, insert
 
-VER = 'v0.9'
+VER = 'v0.8'
 XDELTA = r'C:\claude\utils\xdelta.exe'
 NAME = 'ChaosSeed_KR_' + VER
 TITLE = '선굴활룡대전 카오스 시드 (세가 새턴 일본판 Rev B) 한글 패치 ' + VER
