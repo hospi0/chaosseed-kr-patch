@@ -125,9 +125,21 @@ YN_ORIG = bytes.fromhex('02fc0011340c0011380' + '3f600113804001138110011 3c'.rep
 YN_NEW = bytes.fromhex('02f6001134' + '0c00113803' + 'f60011' + '3c' + '04001138' + '11001138')
 
 
+# ★저장 화면 아래 «消去» 버튼 배치표 — LOAD.BIN 0x98489: 개수 2 + (dx, 0, 0x11, 패턴) · 원래 (-6 → 75칸)(+13 → 76칸), 간격 19
+#   한글 «삭제»는 칸 왼쪽 맞춤이라 둘째 자가 멀고 오른쪽으로 쏠림(실기 2026-10-02 «한 칸 땡겨») → (-10)(+4), 간격 14
+#   ★실기 2026-10-02: 0x98489 만 고쳐선 화면 그대로 → 실제 저장 화면 아래 버튼은 0x98541 (シナリオ選択 6·つづき 3·消去 2 — 버튼 글이 모드마다 바뀜)
+#   원래 (-8)(+14), 간격 22 → (-10)(+4). 0x98489(-6,+13)는 다른 화면 — 같은 왼쪽 맞춤 보정만
+DEL_TABLES = [(0x98489, '02fa00112c0d001130', '02f600112c04001130'),
+              (0x98541, '02f800112c0e001130', '02f600112c04001130')]
+
+
 def apply(L):
     """LOAD.BIN(bytearray) 의 세 블록을 고쳐 제자리에 — 새 압축 ≤ 원래"""
     done = {}
+    for a, o, n in DEL_TABLES:
+        o, n = bytes.fromhex(o), bytes.fromhex(n)
+        assert bytes(L[a:a + len(o)]) == o, '삭제 배치표 원본 불일치 %X' % a
+        L[a:a + len(n)] = n
     assert bytes(L[YN_TABLE:YN_TABLE + len(YN_ORIG)]) == YN_ORIG, '예/아니 배치표 원본 불일치'
     L[YN_TABLE:YN_TABLE + len(YN_NEW)] = YN_NEW
     assert bytes(L[TT2:TT2 + len(TT2_ORIG)]) == TT2_ORIG, '제목 둘째 줄 배치표 원본 불일치'

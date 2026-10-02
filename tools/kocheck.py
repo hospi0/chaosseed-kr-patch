@@ -33,7 +33,14 @@ def check(path):
         msgs = []
         if toks(src) != toks(ko):
             msgs.append('⛔토큰 %s ≠ 원문 %s' % (toks(ko), toks(src)))
-        if src.count('\\n') != ko.count('\\n'):
+        if c[2].startswith('대사'):
+            # ★말풍선은 엔진이 접지 않는다(실기 2026-10-02 C00038 25칸 → 화면 밖) — 줄 수는 자유, 한 줄 ≤ 22칸(tools/bubblefit.py)
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import bubblefit
+            for seg in re.split(r'\\n|\{p\}|\{0[6789A]\}', ko):
+                if bubblefit.w(seg) > bubblefit.LIMIT:
+                    msgs.append('⛔말풍선 줄 %d칸 > %d: %s' % (bubblefit.w(seg), bubblefit.LIMIT, seg))
+        elif src.count('\\n') != ko.count('\\n'):
             msgs.append('⛔\\n %d개 ≠ 원문 %d개' % (ko.count('\\n'), src.count('\\n')))
         body = TOK.sub('', ko).replace('\\n', '')
         if KANA_KANJI.search(body):

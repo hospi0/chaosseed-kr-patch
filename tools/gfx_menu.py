@@ -107,7 +107,7 @@ def put_hud(u, cell, n, text, org=0):
 #   HELP.BIN 0x20524 날 사본 · 색 바탕 0(투명)·글자 8·그림자 A(오른쪽·아래) — 2026-10-02 스테이트 NBG2 패턴 이름으로 찾음
 HUD2_BLOB = 0x1B8CA
 HUD2_HELP = 0x20524
-HUD2 = [(0x0A, 3, 2, '선단', 'Galmuri11.bdf')]
+HUD2 = [(0x0A, 3, 2, '선단', 'Galmuri11.bdf'), (0x69, 3, 2, '턴', 'Galmuri11.bdf')]   # 턴 = 문자 0x2F69‥6B/0x2F79‥7B(오른쪽 아래 «1 ターン», 2026-10-02 스테이트)
 
 
 def put_hud2(buf, org):
@@ -133,11 +133,40 @@ def put_hud2(buf, org):
                         buf[a + y * 4 + x // 2] = (g[r * 8 + y][c * 8 + x] << 4) | g[r * 8 + y][c * 8 + x + 1]
 
 
-def apply_hud2_csfr(d):
+HUD2_OK = {0x93, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0x6F, 0x92, 0x95, 0x96, 0x97, 0x98}   # = insert.POOL8 (묶음 2 에서도 그려도 되는 칸)
+
+
+def put_names_hud2(buf, org, mapping):
+    """★셀 묶음 2(문자 0x2F00 + 코드)에도 이름 음절 8×8 — HUD 이름 줄(«하스피»가 «セモヒ», 실기 2026-10-02)은 묶음 2 를 쓴다.
+       양식 = 몸통 8 · 그림자 A(오른쪽·아래), 갈무리7. 선 56자(0xA5‥0xDC = 원래 가타카나 칸)만 — 8×8 전용 음절 칸은 묶음 2 에선 HUD 공백 칸이라 안 씀."""
+    for code, ch in mapping.items():
+        a = org + code * 32
+        if not (0xA5 <= code <= 0xDC or code in HUD2_OK):
+            continue                                             # ★선 56자 칸(원래 가타카나)만 — 빈 칸은 HUD 가 공백으로 쓴다(실기 2026-10-02 «테테테»)
+        pts, _ = font('Galmuri7.bdf').draw(ch, 0, 0)
+        xs = [x for x, _ in pts]; ys = [y for _, y in pts]
+        iw, ih = max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+        ox = (7 - iw) // 2 - min(xs); oy = (7 - ih) // 2 - min(ys)
+        ink = {(x + ox, y + oy) for x, y in pts if 0 <= x + ox < 8 and 0 <= y + oy < 8}
+        g = [[0] * 8 for _ in range(8)]
+        for x, y in ink:
+            for sx, sy in ((x + 1, y), (x, y + 1), (x + 1, y + 1)):
+                if sx < 8 and sy < 8 and (sx, sy) not in ink:
+                    g[sy][sx] = 0xA
+        for x, y in ink:
+            g[y][x] = 8
+        for y in range(8):
+            for x in range(0, 8, 2):
+                buf[a + y * 4 + x // 2] = (g[y][x] << 4) | g[y][x + 1]
+
+
+def apply_hud2_csfr(d, names=None):
     sys.path.insert(0, HERE)
     import lz
     u, e = lz.decompress(d, HUD2_BLOB + 1)
     u = bytearray(u); put_hud2(u, 0)
+    if names:
+        put_names_hud2(u, 0, names)
     c = lz.compress(bytes(u))
     if len(c) > e - (HUD2_BLOB + 1):
         raise SystemExit('⛔CSFR 셀 묶음 2 압축 %d > 원래 %d' % (len(c), e - HUD2_BLOB - 1))

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""아이템 설명 표 (0.BIN 0x72BE6‥0x749F0, 2026-10-02 실기 «미번역» 대응) — 데이터로 형식 확정(참조 1,079개 정렬 검산)
+r"""아이템 설명 표 (0.BIN 0x72BE6‥0x747F0, 뒤 0x200 B = 이름 오프셋 표, 2026-10-02 실기 «미번역» 대응) — 데이터로 형식 확정(참조 1,079개 정렬 검산)
   구조: u16 BE 오프셋 256개(표 시작 기준, 0x200 = 빈 항목) + 항목들. 항목 = 토큰 … FF(끝).
     · 글자: 1바이트 0x20‥0xFE / 2바이트 0x18‥0x1D + lo
     · 01 = 줄바꿈
@@ -15,7 +15,7 @@ HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import tbl
 
-START, END = 0x72BE6, 0x749F0
+START, END = 0x72BE6, 0x747F0   # ★0x747F0‥0x749F0 = 아이템 «이름» u16 오프셋 표(256개, 기준 = 표 시작, 함수 0x0605A06C) — 덮으면 이름이 빈다(2026-10-02 실기)
 N = 256
 
 
@@ -75,7 +75,7 @@ def entry(b, a):
 
 # 같은 형식의 표 — (시작, 끝, ID 머리, 한 줄 폭, 번역 파일). 선수 설명 표는 26개 뒤 오프셋이 FFFF(없음)·마지막 항목은 00 으로 끝남
 END_U = 0x700B1        # 강화 설명 표 데이터 끝(뒤 = 강화 이름 오프셋 표)
-TABLES = [(0x72BE6, 0x749F0, 'I', 12, 'itemdesc.tsv'), (0x77B6C, 0x782C8, 'M', 18, 'mondesc.tsv'),
+TABLES = [(0x72BE6, 0x747F0, 'I', 12, 'itemdesc.tsv'), (0x77B6C, 0x782C8, 'M', 18, 'mondesc.tsv'),
           (0x6FD50, END_U, 'U', 24, 'upgdesc.tsv')]   # U = 강화 항목 설명(192칸)
 
 
