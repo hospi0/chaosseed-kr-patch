@@ -1,4 +1,4 @@
-# 선굴활룡대전 카오스 시드 (새턴 JP) 한글화 — 작업 저장소(비공개)
+# 선굴활룡대전 카오스 시드 (새턴 JP) 한글화 — 작업 저장소
 
 ## 내려받기
 - 최신 **v0.8** — [릴리즈](https://github.com/hospi0/chaosseed-kr-patch/releases/latest)에서 `ChaosSeed_KR_v0.8.zip`
