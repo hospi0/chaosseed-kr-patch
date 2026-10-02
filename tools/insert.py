@@ -287,8 +287,10 @@ def build(kodir, install=False, keep=False):
     if 'HELP.BIN' not in bins:
         bins['HELP.BIN'] = bytearray(open(os.path.join(ROOT, 'work', 'disc', 'HELP.BIN'), 'rb').read())
     gfx_menu.apply(bins['HELP.BIN'])
+    gfx_menu.put_hud2(bins['HELP.BIN'], gfx_menu.HUD2_HELP)          # HUD «仙丹» 날 사본
     bins['CSFR.DAT'] = gfx_menu.apply_csfr(bytearray(open(os.path.join(ROOT, 'work', 'disc', 'CSFR.DAT'), 'rb').read()),
                                            extra={c: ch for ch, c in cmap8.items()})  # 선 56 + 8×8 이름표 전용 셀
+    gfx_menu.apply_hud2_csfr(bins['CSFR.DAT'])                   # HUD «仙丹»(셀 묶음 2, 0x1B8CA 압축 블록)
     # ⑤ 이름 입력판(tools/nameent.py)
     for f in ('LOAD.BIN', 'NAMEENT.BIN'):
         if f not in bins:
