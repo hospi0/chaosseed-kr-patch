@@ -555,6 +555,8 @@ def build(kodir, install=False, keep=False):
         sk = two('기')
     assert bytes(cs0[0x7AC2E:0x7AC32]) == bytes.fromhex('0d01194f') and bytes(bins['CS.BIN'][0x7AC30:0x7AC32]) == b'\x19\x4f'
     bins['CS.BIN'][0x7AC30:0x7AC32] = sk
+    # ★LOAD.BIN 0x105D8‥0x105F0 = 타이틀 옵션 포인터 표(W00729 앞부분, «レクチャー» 앞) — 1바이트라도 밀리면 옵션 진입 크래시(실기 2026-10-03)
+    assert bytes(bins['LOAD.BIN'][0x105D8:0x105F0]) == _orig.setdefault('LOAD.BIN', open(os.path.join(ROOT, 'work', 'disc', 'LOAD.BIN'), 'rb').read())[0x105D8:0x105F0], 'LOAD 포인터 표 0x105D8 바뀜'
     for off, orig, cands in MISSED:                              # 빠진 문구 — 원래 길이 그대로(후보 중 1바이트 음절 {2:} 사본 칸·빈 2바이트 칸으로 «정확히» 맞는 첫 것)
         room = len(orig) // 2
         assert bytes(cs0[off:off + room]) == bytes.fromhex(orig) and bytes(bins['CS.BIN'][off:off + room]) == bytes.fromhex(orig), hex(off)
