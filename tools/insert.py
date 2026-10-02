@@ -273,6 +273,10 @@ def build(kodir, install=False, keep=False):
             # ★끝이 01/02(다음 문자열로 이어짐)면 남는 자리를 끝에 채우면 그 공백이 이어진 줄에 찍힌다(실기: 필드 메뉴 빈 줄)
             #   → 첫 줄 끝(줄바꿈 앞)에 공백을 넣어 안 보이게, 줄바꿈이 없으면 끝 토큰들 앞에
             t = tr[o['id']]; pad = ' ' * (room - len(new))
+            m4 = re.search(r'\{04:[0-9A-Fa-f]{2}\}', t)
+            if m4:                                               # ★메뉴 항목(«仙術{04:00}{09}»): 공백은 선택 막대에 칠해져 틀 밖으로 삐짐(실기 2026-10-02) → 같은 {04:xx} 를 되풀이(2바이트씩), 홀수만 공백 1
+                k = room - len(new)
+                pad = m4.group(0) * (k // 2) + ' ' * (k % 2)
             m = re.search(r'(\{[^}]*\})*$', t)
             t2 = t.replace('\\n', pad + '\\n', 1) if '\\n' in t else t[:m.start()] + pad + t[m.start():]
             new = encode(t2, cmap8 if in8 else cmap, nl=5)
