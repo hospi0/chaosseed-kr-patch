@@ -27,12 +27,20 @@ SAVE = [(0x13916, 0, '비', 'p1', 'Galmuri11-Bold.bdf'), (0x13916, 1, '어', 'p1
 MENU = [(64, '회'), (65, '차'), (66, '시'), (67, '나'), (68, '리'), (69, '오'), (70, '선'), (71, '택'),
         (72, '이'), (73, '어'), (74, '서'), (75, '삭'), (76, '제'), (77, '예~'), (78, ''), (79, '아니')]
 SIGN = [(10, '시'), (11, '나'), (12, '리'), (13, '오'), (14, '선'), (15, '택')]
-TITLE = [(11, ''), (12, '카'), (13, '트'), (14, '리'), (15, '지'), (16, ''),
+TITLE = [(11, '카'), (12, '트'), (13, '리'), (14, '지'), (15, ''), (16, ''),
          (17, '을'), (18, '사'), (19, '용'), (20, '하'), (21, '기'), (22, '본'), (23, '체')]
 
 
 # ★제목 줄 11‥16칸 화면 위치 = 93·107·120·133·146·158(실기 스샷에 칸 그림 맞춰 실측 — 간격 14·13·13·13·12, 일정하지 않음)
 TITLE_OFFS = [0, 14, 27, 40, 53, 65]
+# ★제목 메뉴 둘째 줄 배치표 — LOAD.BIN 0x99949(날 바이트): 개수 14 + (dx, dy, 0x10, 칸×4) · 기준 x 176 (첫 줄 0x99920, 기준 152)
+#   원래 カートリッジ 6칸 + RAM + を使用する — 고침: 카트리지 4칸을 «본체»와 같은 크기·간격으로, RAM 이하를 첫 줄 간격(15·14·14·14·13…)으로 당김
+TT2 = 0x99949
+TT2_ORIG = bytes.fromhex('0e' 'ab01102c' 'b9011030' 'c7011034' 'd4011038' 'e201103c' 'ee011040' 'fc011010'
+                         '0a011014' '18011018' '25011044' '32011048' '3f01104c' '4c011050' '58011054')
+_TT2 = [(-85, 11), (-71, 12), (-57, 13), (-43, 14), (-28, 4), (-14, 5), (0, 6), (14, 17), (27, 18), (40, 19),
+        (53, 20), (65, 21), (-43, 15), (-43, 16)]                 # 끝 둘 = 빈 칸(개수는 그대로)
+TT2_NEW = bytes([14]) + b''.join(bytes([dx & 0xFF, 1, 0x10, t * 4]) for dx, t in _TT2)
 ROOF = 40           # 굵은 첫 글자(원래 空) 스프라이트만 39번 칸 아래 4줄에서 시작 → 16줄 틀에 그려 39칸 12‥15줄 + 40칸 0‥11줄로 나눔
 LEFT = {75, 76}     # 삭제: 원본처럼 칸 왼쪽에(실기 «한 칸 앞으로»)
 
@@ -122,6 +130,8 @@ def apply(L):
     done = {}
     assert bytes(L[YN_TABLE:YN_TABLE + len(YN_ORIG)]) == YN_ORIG, '예/아니 배치표 원본 불일치'
     L[YN_TABLE:YN_TABLE + len(YN_NEW)] = YN_NEW
+    assert bytes(L[TT2:TT2 + len(TT2_ORIG)]) == TT2_ORIG, '제목 둘째 줄 배치표 원본 불일치'
+    L[TT2:TT2 + len(TT2_NEW)] = TT2_NEW
     for blk, js in jobs().items():
         u, e = lz.decompress(L, blk + 1)
         u = bytearray(u)
@@ -136,33 +146,6 @@ def apply(L):
                         u[39 * 128 + (12 + y) * 8 + x // 2] = (g[y][x] << 4) | g[y][x + 1]
                 g = g[4:] + [[0] * 16 for _ in range(4)]
             put(u, t, g)
-        if blk == 0x166F4:                                      # 카트리지: 81px(6칸 실측 위치) 에 네 자(20px 간격, 가로 1.4배) — 줄 시작·RAM 붙임
-            canvas = set()
-            for k, ch in enumerate('카트리지'):
-                pts, _ = font('Galmuri11-Bold.bdf').draw(ch, 0, 0)
-                xs = [x for x, _ in pts]; ys = [y for _, y in pts]
-                x0, y0 = min(xs), min(ys); ih = max(ys) - y0 + 1
-                for x, y in pts:
-                    for xx in range(int((x - x0) * 1.4), int((x - x0 + 1) * 1.4)):
-                        canvas.add((k * 20 + 1 + xx, y - y0 + (15 - ih) // 2))
-            W = TITLE_OFFS[-1] + 16
-            full = [[0] * W for _ in range(16)]
-            shadow = {(x + 1, y + 1) for x, y in canvas if x + 1 < W and y + 1 < 16} - canvas
-            body = canvas | shadow
-            for x, y in body:
-                for dx in (-1, 0, 1):
-                    for dy in (-1, 0, 1):
-                        X, Y = x + dx, y + dy
-                        if 0 <= X < W and 0 <= Y < 16 and (X, Y) not in body:
-                            full[Y][X] = 11
-            for x, y in shadow:
-                full[y][x] = 12
-            for x, y in canvas:
-                full[y][x] = 14 if y >= 11 else 15
-            for c in range(6):                                  # 칸 c 는 화면 TITLE_OFFS[c] 부터 — 다음 칸과 겹치는 오른쪽은 비움(마지막 칸만 16px)
-                o = TITLE_OFFS[c]; wdt = 16 if c == 5 else TITLE_OFFS[c + 1] - o
-                g = [[full[y][o + x] if x < wdt else 0 for x in range(16)] for y in range(16)]
-                put(u, 11 + c, g)
         if blk == 0x155AB and 0x13916 in done:                  # 시나리오 화면 «0回終»(하늘색) = 저장 화면 64‥65칸 사본, 반 칸 어긋난 0x2C0·0x340 · 색 3→4
             src = done[0x13916][2]
             for t, off in ((64, 0x2C0), (65, 0x340)):
