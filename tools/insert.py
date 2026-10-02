@@ -126,6 +126,9 @@ EIGHT = ([chr(0xAC00 + 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍ�
 #     8×8 셀만 그린다(본문 12px 글꼴의 같은 코드 글자와 무관 — 이 표는 8×8 로만 찍힌다).
 #   12px·8×8 양쪽에 찍히는 선수 이름(기본·무작위 이름)은 선 56자로만 쓴다.
 NAME8 = [('0.BIN', 0x778EF, 0x77B73)]
+SKILLS = ['호구회전', '대화염', '천뢰파', '폭축파', '사석광', '백련천궁', '대호읍', '여의', '봉황천무', '연축연탄', '천지호뢰',
+          '강구회천', '열화포', '암뢰파', '화염탄', '사석효', '백려천궁', '대절규', '돌봉', '공작연무', '염습연탄', '천신강래', '멸시선']
+#   ↑ 豪球回転·大火炎·天雷破·爆縮破·邪石光·百連天弓·大号泣·如意·鳳凰天舞·練縮連弾·天地豪雷·剛球回天·烈火砲·闇雷破·火炎弾·蛇石効·白麗天弓·大絶叫·突棒·孔雀連舞·炎襲連弾·天神降来·滅視線
 NUMCMD = re.compile(r'\{1[12]:[0-9A-F]{2}:[0-9A-F]{2}\}')     # 숫자 명령(인자 3개 — 토큰은 2개만 보여 뒤 토큰이 어긋남)
 PADLOG = []                                                       # 남는 자리 채움 방식 전수(빌드 때 work/padlog.tsv)
 # ★u16 오프셋 표로 찾는 이름 구역 — NUL 을 세지 않으므로 남는 자리는 00(공백이면 «만두  가 있어»처럼 빈칸이 낀다)
@@ -247,6 +250,7 @@ def build(kodir, install=False, keep=False):
     tr = load_ko(kodir)
     import itemdesc
     tr.update(itemdesc.load_ko())                                # 아이템 설명(I###, tools/itemdesc.py) — 글자표에 포함
+    tr.update({'SK%02d' % i: n for i, n in enumerate(SKILLS)})   # 기술 이름(직접 패치) — 글자표에 포함
     pins = name8_pins(tr)
     cmap = charmap(tr, occ, pins)
     print('번역 %d줄 · 글자표 한글 %d자(칸 %d)' % (len(tr), len(cmap), len(ONE) + len(TWO)))
@@ -537,6 +541,22 @@ def build(kodir, install=False, keep=False):
                           (0x7C6CE, '19cd19ce', '내구'), (0x7C6DF, '1a841a85', '축적'), (0x7C6EB, '18c0188e', '생산')):
         assert bytes(cs0[off:off + 4]) == bytes.fromhex(orig) and bytes(bins['CS.BIN'][off:off + 4]) == bytes.fromhex(orig), hex(off)
         bins['CS.BIN'][off:off + 4] = two(ko[0]) + two(ko[1])
+    # ★기술 이름 23개(0.BIN 0x78D05‥, «없음» 0x78D02 다음부터 NUL 로 이어진 목록 — 포인터 없이 순번으로 찾음, 추출에서 빠졌었다)
+    #   상태 창 «기 쾌둿작멀»(실기 2026-10-02) → 한자음. 각 항목 원래 바이트 그대로(1바이트 음절은 {2:} 사본 칸, 그래도 남으면 빈 2바이트 칸)
+    o0 = _orig.setdefault('0.BIN', open(os.path.join(ROOT, 'work', 'disc', '0.BIN'), 'rb').read())
+    q = 0x78D05
+    for ko in SKILLS:
+        e = o0.index(b'\0', q); room = e - q
+        new = encode(ko, cmap, nl=5)
+        if len(new) < room:
+            t2, rem = alias_text(ko, room - len(new), cmap)
+            new = encode(t2, cmap, nl=5)
+        while len(new) + 2 <= room:
+            new += code_bytes(PUN[BLANK])
+        assert len(new) == room, ('기술 이름 길이', ko, len(new), room)
+        bins['0.BIN'][q:e] = new
+        q = e + 1
+    assert o0[q - 1] == 0 and q == 0x78DB6, hex(q)
     for pre, n, room in itemdesc.apply(bins['0.BIN'], tr, cmap, encode):   # 아이템(I)·선수(M) 설명 표 통째로 다시 짜기
         print('설명 표 %s %d B / 칸 %d B' % (pre, n, room))
     # ④ 메뉴 8×8 셀 라벨(tools/gfx_menu.py — HELP.BIN 0x1E524)

@@ -3,7 +3,7 @@
 ## 내려받기
 - 최신 **v0.9** — [릴리즈](https://github.com/hospi0/chaosseed-kr-patch/releases/latest)에서 `ChaosSeed_KR_v0.9.zip`
 - 대상: `Senkutsu Katsuryu Taisen - Chaos Seed (Japan) (Disc 1) (Game Disc) (Rev B) (21M)` 트랙 1 (트랙 2개)
-- 원본md5 `B9B3F25F82877771DED23FE0DAE8A9BC` → 패치md5 `829899E5B1319188038044D26F4158CF`
+- 원본md5 `B9B3F25F82877771DED23FE0DAE8A9BC` → 패치md5 `0093EA756E2F500D13970578A46B0962`
 
 ## 작업 저장소
 
