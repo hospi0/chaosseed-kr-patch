@@ -109,9 +109,19 @@ def jobs():
     return out
 
 
+# ★저장 화면 예/아니 스프라이트 배치표 — LOAD.BIN 0x9857C(날 바이트, RAM 0x060C557C), 항목 = (dx, dy, 0x11, 패턴) · 칸 = 64 + 패턴/4 · 기준 x 80
+#   원래: はい 2개 (-4,77)(+12,78) · いいえ 3개 (-10,78)(+4,78)(+17,79) — 78 칸을 두 줄이 같이 써서 그림만으론 줄맞춤 불가(2026-10-02 스테이트로 역추적)
+#   고침: 예(77)·아니(79)를 둘 다 dx -10(x 70)에서 시작, 나머지 항목은 빈 칸 78
+YN_TABLE = 0x9857C
+YN_ORIG = bytes.fromhex('02fc0011340c0011380' + '3f600113804001138110011 3c'.replace(' ', ''))
+YN_NEW = bytes.fromhex('02f6001134' + '0c00113803' + 'f60011' + '3c' + '04001138' + '11001138')
+
+
 def apply(L):
     """LOAD.BIN(bytearray) 의 세 블록을 고쳐 제자리에 — 새 압축 ≤ 원래"""
     done = {}
+    assert bytes(L[YN_TABLE:YN_TABLE + len(YN_ORIG)]) == YN_ORIG, '예/아니 배치표 원본 불일치'
+    L[YN_TABLE:YN_TABLE + len(YN_NEW)] = YN_NEW
     for blk, js in jobs().items():
         u, e = lz.decompress(L, blk + 1)
         u = bytearray(u)
